@@ -1,0 +1,8 @@
+[package]
+name = "deq"
+version = "0.1.0"
+authors = ["ebiiim <mail@ebiiim.com>"]
+edition = "2018"
+
+[dependencies]
+portaudio = ">=0.7.0"
