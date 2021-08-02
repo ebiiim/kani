@@ -5,7 +5,7 @@ use std::process;
 use crate::err::DeqError;
 
 fn get_device_names(pa: &portaudio::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
-    log::trace!("cli: get devices");
+    log::trace!("get devices");
     let devs = pa.devices();
     match devs {
         Ok(devs) => Ok(devs
@@ -33,7 +33,7 @@ fn get_device_info(
     idx: usize,
 ) -> Result<portaudio::DeviceInfo, DeqError> {
     let devidx = portaudio::DeviceIndex(idx as u32);
-    log::trace!("cli: get devices");
+    log::trace!("get devices");
     let devs = pa.devices();
     if let Ok(devs) = devs {
         for d in devs {
@@ -58,20 +58,20 @@ fn print_device_info(pa: &portaudio::PortAudio, idx: usize) -> Result<(), DeqErr
 fn read_str(s: &str) -> Result<String, DeqError> {
     print!("{}", s);
     if stdout().flush().is_err() {
-        log::error!("cli: could not flush stdout");
+        log::error!("could not flush stdout");
     }
     let mut input = String::new();
     if stdin().read_line(&mut input).is_err() {
-        log::error!("cli: could not read line");
+        log::error!("could not read line");
         return Err(DeqError::InvalidOperation);
     }
-    log::trace!("cli: read_str={}", input);
+    log::trace!("read_str={}", input);
     Ok(input)
 }
 
 fn read_int(s: &str) -> Result<usize, DeqError> {
     let read = read_str(s)?.trim().parse();
-    log::trace!("cli: read_int={:?}", read);
+    log::trace!("read_int={:?}", read);
     match read {
         Ok(i) => Ok(i),
         Err(_) => Err(DeqError::InvalidOperation),
@@ -103,17 +103,17 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                     println!("PortAudio version: {}", portaudio::version());
                     let dc = pa.device_count();
                     if dc.is_err() {
-                        log::error!("cli: could not fetch devices");
+                        log::error!("could not fetch devices");
                         continue;
                     }
                     println!("Device count: {}", dc.unwrap());
                     if print_devices(pa).is_err() {
-                        log::error!("cli: could not print devices");
+                        log::error!("could not print devices");
                     }
                 } else if cmd == 1 {
                     if let Ok(n) = read_int("see device> ") {
                         if print_device_info(pa, n).is_err() {
-                            log::error!("cli: could not find device id={}", n);
+                            log::error!("could not find device id={}", n);
                         }
                     }
                 } else if cmd == 2 {
@@ -121,7 +121,7 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                         if get_device_info(pa, n).is_ok() {
                             input_dev = n;
                         } else {
-                            log::error!("cli: could not find device id={}", n);
+                            log::error!("could not find device id={}", n);
                         }
                     }
                 } else if cmd == 3 {
@@ -129,21 +129,21 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                         if get_device_info(pa, n).is_ok() {
                             output_dev = n;
                         } else {
-                            log::error!("cli: could not find device id={}", n);
+                            log::error!("could not find device id={}", n);
                         }
                     }
                 } else if cmd == 9 {
-                    log::debug!("cli: exit");
+                    log::debug!("exit");
                     process::exit(0);
                 } else {
-                    log::debug!("cli: invalid command");
+                    log::debug!("invalid command");
                     continue;
                 }
             }
         }
     }
     log::debug!(
-        "cli: devices selected input={}, output={}",
+        "devices selected input={}, output={}",
         input_dev,
         output_dev
     );

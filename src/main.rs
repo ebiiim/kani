@@ -22,10 +22,7 @@ fn main() {
     // init portaudio
     let pa = portaudio::PortAudio::new();
     if pa.is_err() {
-        log::error!(
-            "main: could not initialize portaudio: {:?}",
-            pa.unwrap_err()
-        );
+        log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
         process::exit(0);
     }
     let pa = pa.unwrap();
