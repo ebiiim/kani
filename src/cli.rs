@@ -1,3 +1,4 @@
+use log;
 use portaudio;
 use std::io::stdin;
 use std::io::{stdout, Write};
@@ -6,6 +7,7 @@ use std::process;
 use crate::err::DeqError;
 
 fn get_device_names(pa: &portaudio::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
+    log::debug!("cli: get devices");
     let devs = pa.devices();
     match devs {
         Ok(devs) => Ok(devs
@@ -33,6 +35,7 @@ fn get_device_info(
     idx: usize,
 ) -> Result<portaudio::DeviceInfo, DeqError> {
     let devidx = portaudio::DeviceIndex(idx as u32);
+    log::debug!("cli: get devices");
     let devs = pa.devices();
     if let Ok(devs) = devs {
         for d in devs {
@@ -56,16 +59,22 @@ fn print_device_info(pa: &portaudio::PortAudio, idx: usize) -> Result<(), DeqErr
 
 fn read_str(s: &str) -> Result<String, DeqError> {
     print!("{}", s);
-    stdout().flush().unwrap();
+    if stdout().flush().is_err() {
+        log::error!("cli: could not flush stdout");
+    }
     let mut input = String::new();
     if stdin().read_line(&mut input).is_err() {
+        log::error!("cli: could not read line");
         return Err(DeqError::InvalidOperation);
     }
+    log::debug!("cli: read_str={}", input);
     Ok(input)
 }
 
 fn read_int(s: &str) -> Result<usize, DeqError> {
-    match read_str(s)?.trim().parse() {
+    let read = read_str(s)?.trim().parse();
+    log::debug!("cli: read_int={:?}", read);
+    match read {
         Ok(i) => Ok(i),
         Err(_) => Err(DeqError::InvalidOperation),
     }
@@ -142,5 +151,10 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
             }
         }
     }
+    log::info!(
+        "cli: devices selected input={}, output={}",
+        input_dev,
+        output_dev
+    );
     return (input_dev, output_dev);
 }
