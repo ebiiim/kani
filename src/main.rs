@@ -1,6 +1,3 @@
-use env_logger;
-use log;
-use portaudio;
 use std::env;
 use std::process;
 

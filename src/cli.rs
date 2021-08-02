@@ -1,5 +1,3 @@
-use log;
-use portaudio;
 use std::io::stdin;
 use std::io::{stdout, Write};
 use std::process;
@@ -22,7 +20,7 @@ fn get_device_names(pa: &portaudio::PortAudio) -> Result<Vec<(usize, String)>, D
 }
 
 fn print_devices(pa: &portaudio::PortAudio) -> Result<(), DeqError> {
-    let device_names = get_device_names(&pa)?;
+    let device_names = get_device_names(pa)?;
     device_names.iter().all(|(idx, name)| {
         println!("{}\t{}", idx, name);
         true
@@ -52,7 +50,7 @@ fn get_device_info(
 }
 
 fn print_device_info(pa: &portaudio::PortAudio, idx: usize) -> Result<(), DeqError> {
-    let devinfo = get_device_info(&pa, idx)?;
+    let devinfo = get_device_info(pa, idx)?;
     println!("{:#?}", devinfo);
     Ok(())
 }
@@ -109,42 +107,30 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                         continue;
                     }
                     println!("Device count: {}", dc.unwrap());
-                    if print_devices(&pa).is_err() {
+                    if print_devices(pa).is_err() {
                         log::error!("cli: could not print devices");
                     }
                 } else if cmd == 1 {
-                    let n = read_int("see device> ");
-                    match n {
-                        Ok(n) => {
-                            if print_device_info(&pa, n).is_err() {
-                                log::error!("cli: could not find device id={}", n);
-                            }
+                    if let Ok(n) = read_int("see device> ") {
+                        if print_device_info(pa, n).is_err() {
+                            log::error!("cli: could not find device id={}", n);
                         }
-                        Err(_) => {}
                     }
                 } else if cmd == 2 {
-                    let n = read_int("input device> ");
-                    match n {
-                        Ok(n) => {
-                            if get_device_info(&pa, n).is_ok() {
-                                input_dev = n;
-                            } else {
-                                log::error!("cli: could not find device id={}", n);
-                            }
+                    if let Ok(n) = read_int("input device> ") {
+                        if get_device_info(pa, n).is_ok() {
+                            input_dev = n;
+                        } else {
+                            log::error!("cli: could not find device id={}", n);
                         }
-                        Err(_) => {}
                     }
                 } else if cmd == 3 {
-                    let n = read_int("output device> ");
-                    match n {
-                        Ok(n) => {
-                            if get_device_info(&pa, n).is_ok() {
-                                output_dev = n;
-                            } else {
-                                log::error!("cli: could not find device id={}", n);
-                            }
+                    if let Ok(n) = read_int("output device> ") {
+                        if get_device_info(pa, n).is_ok() {
+                            output_dev = n;
+                        } else {
+                            log::error!("cli: could not find device id={}", n);
                         }
-                        Err(_) => {}
                     }
                 } else if cmd == 9 {
                     log::debug!("cli: exit");
@@ -161,5 +147,5 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
         input_dev,
         output_dev
     );
-    return (input_dev, output_dev);
+    (input_dev, output_dev)
 }
