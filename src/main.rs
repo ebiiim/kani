@@ -9,7 +9,7 @@ mod err;
 
 fn main() {
     // init logger
-    let log_levels = ["error", "warn", "info", "debug"];
+    let log_levels = ["error", "warn", "info", "debug", "trace"];
     let log_default = log_levels[1]; // default log level: warn
     let log_env = "RUST_LOG";
     match env::var(log_env) {
