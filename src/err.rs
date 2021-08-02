@@ -3,15 +3,17 @@ use std::fmt;
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum DeqError {
-    InvalidDevice,
-    InvalidOperation,
+    Device,
+    Operation,
+    Format,
 }
 
 impl fmt::Display for DeqError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match *self {
-            DeqError::InvalidDevice => "invalid device id",
-            DeqError::InvalidOperation => "invalid user operation",
+            DeqError::Device => "invalid device id",
+            DeqError::Operation => "invalid user operation",
+            DeqError::Format => "invalid stream format",
         };
         f.write_str(msg)
     }

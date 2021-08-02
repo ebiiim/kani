@@ -1,26 +1,13 @@
+use portaudio as pa;
 use std::io::stdin;
 use std::io::{stdout, Write};
 use std::process;
 
 use crate::err::DeqError;
+use crate::pautil;
 
-fn get_device_names(pa: &portaudio::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
-    log::trace!("get devices");
-    let devs = pa.devices();
-    match devs {
-        Ok(devs) => Ok(devs
-            .map(|dev| {
-                let d = dev.unwrap();
-                let portaudio::DeviceIndex(idx) = d.0;
-                (idx as usize, String::from(d.1.name))
-            })
-            .collect()),
-        Err(_) => Err(DeqError::InvalidDevice),
-    }
-}
-
-fn print_devices(pa: &portaudio::PortAudio) -> Result<(), DeqError> {
-    let device_names = get_device_names(pa)?;
+fn print_devices(pa: &pa::PortAudio) -> Result<(), DeqError> {
+    let device_names = pautil::get_device_names(pa)?;
     device_names.iter().all(|(idx, name)| {
         println!("{}\t{}", idx, name);
         true
@@ -28,29 +15,8 @@ fn print_devices(pa: &portaudio::PortAudio) -> Result<(), DeqError> {
     Ok(())
 }
 
-fn get_device_info(
-    pa: &portaudio::PortAudio,
-    idx: usize,
-) -> Result<portaudio::DeviceInfo, DeqError> {
-    let devidx = portaudio::DeviceIndex(idx as u32);
-    log::trace!("get devices");
-    let devs = pa.devices();
-    if let Ok(devs) = devs {
-        for d in devs {
-            if let Ok(d) = d {
-                if d.0 == devidx {
-                    return Ok(d.1);
-                }
-            } else {
-                return Err(DeqError::InvalidDevice);
-            }
-        }
-    }
-    Err(DeqError::InvalidDevice)
-}
-
-fn print_device_info(pa: &portaudio::PortAudio, idx: usize) -> Result<(), DeqError> {
-    let devinfo = get_device_info(pa, idx)?;
+fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), DeqError> {
+    let devinfo = pautil::get_device_info(pa, idx)?;
     println!("{:#?}", devinfo);
     Ok(())
 }
@@ -63,7 +29,7 @@ fn read_str(s: &str) -> Result<String, DeqError> {
     let mut input = String::new();
     if stdin().read_line(&mut input).is_err() {
         log::error!("could not read line");
-        return Err(DeqError::InvalidOperation);
+        return Err(DeqError::Operation);
     }
     log::trace!("read_str={}", input);
     Ok(input)
@@ -74,11 +40,11 @@ fn read_int(s: &str) -> Result<usize, DeqError> {
     log::trace!("read_int={:?}", read);
     match read {
         Ok(i) => Ok(i),
-        Err(_) => Err(DeqError::InvalidOperation),
+        Err(_) => Err(DeqError::Operation),
     }
 }
 
-pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
+pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
     let term_clear = || print!("\x1B[2J");
     let term_left_top = || print!("\x1B[1;1H");
     let no_dev = 1 << 31;
@@ -100,7 +66,7 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
             }
             Ok(cmd) => {
                 if cmd == 0 {
-                    println!("PortAudio version: {}", portaudio::version());
+                    println!("PortAudio version: {}", pa::version());
                     let dc = pa.device_count();
                     if dc.is_err() {
                         log::error!("could not fetch devices");
@@ -118,7 +84,7 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                     }
                 } else if cmd == 2 {
                     if let Ok(n) = read_int("input device> ") {
-                        if get_device_info(pa, n).is_ok() {
+                        if pautil::get_device_info(pa, n).is_ok() {
                             input_dev = n;
                         } else {
                             log::error!("could not find device id={}", n);
@@ -126,7 +92,7 @@ pub fn select_devices_loop(pa: &portaudio::PortAudio) -> (usize, usize) {
                     }
                 } else if cmd == 3 {
                     if let Ok(n) = read_int("output device> ") {
-                        if get_device_info(pa, n).is_ok() {
+                        if pautil::get_device_info(pa, n).is_ok() {
                             output_dev = n;
                         } else {
                             log::error!("could not find device id={}", n);

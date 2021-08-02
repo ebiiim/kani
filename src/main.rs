@@ -1,8 +1,10 @@
+use portaudio as pa;
 use std::env;
 use std::process;
 
 mod cli;
 mod err;
+mod pautil;
 
 fn main() {
     // init logger
@@ -20,12 +22,16 @@ fn main() {
     env_logger::init();
 
     // init portaudio
-    let pa = portaudio::PortAudio::new();
+    let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
         process::exit(0);
     }
     let pa = pa.unwrap();
     let (input_dev, output_dev) = cli::select_devices_loop(&pa);
-    println!("Input device: {}, Output device: {}", input_dev, output_dev);
+
+    // play wav
+    if let Err(e) = pautil::play_wav(&pa, "test/48000-16b-2ch.wav", output_dev) {
+        log::error!("play wav err={}", e);
+    }
 }
