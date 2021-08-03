@@ -4,6 +4,7 @@ use std::process;
 
 mod cli;
 mod err;
+mod filter;
 mod pautil;
 
 fn main() {
