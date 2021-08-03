@@ -1,5 +1,7 @@
 use crate::err::DeqError;
 use crate::filter;
+use crate::filter::{BQFParam, BQFType, BiquadFilter};
+
 use portaudio as pa;
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
@@ -55,10 +57,24 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
     // apply filters
+    let wav_rate = reader.spec().sample_rate as f64;
+    let mut l1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
+    let mut r1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
+    let mut l2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
+    let mut r2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
+    let mut l3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
+    let mut r3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
+
     let buf = filter::i16_to_f32(buf);
     let (l, r) = filter::from_interleaved(buf);
-    let l = filter::volume(l, 0.1);
-    let r = filter::volume(r, 0.1);
+    let l = filter::volume(l, 0.5);
+    let r = filter::volume(r, 0.5);
+    let l = l1.apply(l);
+    let r = r1.apply(r);
+    let l = l2.apply(l);
+    let r = r2.apply(r);
+    let l = l3.apply(l);
+    let r = r3.apply(r);
     let buf = filter::to_interleaved(l, r);
     let mut buf = buf.iter();
 
@@ -68,7 +84,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let interleaved = true;
     let player_info = get_device_info(pa, dev)?;
     // let rate = player_info.default_sample_rate;
-    let rate = reader.spec().sample_rate as f64; // try wav's rate
+    let rate = wav_rate; // try wav's rate instead of default_sample_rate
     let latency = player_info.default_low_output_latency;
     // PortAudio supports audio in/out in f32 regardless of the native audio API.
     // Applying filters in floating point avoids precision loss, so use f32 output here to reduce conversions.
