@@ -34,10 +34,15 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
     Err(DeqError::Device)
 }
 
-pub fn from_interleaved(a: &[i16]) -> (Vec<i16>, Vec<i16>) {
+pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
+    log::trace!("i16_to_f32 a.len()={}", a.len());
+    a.iter().map(|x| *x as f32 / 32767.0).collect()
+}
+
+pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
     log::trace!("from_interleaved a.len()={}", a.len());
-    let mut l: Vec<i16> = vec![0; a.len() / 2];
-    let mut r: Vec<i16> = vec![0; a.len() / 2];
+    let mut l: Vec<f32> = vec![0.0; a.len() / 2];
+    let mut r: Vec<f32> = vec![0.0; a.len() / 2];
     for i in 0..a.len() {
         if i % 2 == 0 {
             l[i / 2] = a[i];
@@ -48,7 +53,7 @@ pub fn from_interleaved(a: &[i16]) -> (Vec<i16>, Vec<i16>) {
     (l, r)
 }
 
-pub fn to_interleaved(l: &[i16], r: &[i16]) -> Vec<i16> {
+pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
     log::trace!("from_interleaved l.len()={} r.len()={}", l.len(), r.len());
     if l.len() != r.len() {
         log::error!(
@@ -58,7 +63,7 @@ pub fn to_interleaved(l: &[i16], r: &[i16]) -> Vec<i16> {
         );
         return Vec::new();
     }
-    let mut a: Vec<i16> = vec![0; l.len() * 2];
+    let mut a: Vec<f32> = vec![0.0; l.len() * 2];
     for i in 0..a.len() {
         if i % 2 == 0 {
             a[i] = l[i / 2];
@@ -69,17 +74,9 @@ pub fn to_interleaved(l: &[i16], r: &[i16]) -> Vec<i16> {
     a
 }
 
-pub fn volume_filter(a: &[i16], vol: isize, vol_max: isize) -> Vec<i16> {
-    log::trace!(
-        "volume_filter a.len()={} vol={} vol_max={}",
-        a.len(),
-        vol,
-        vol_max
-    );
-    // Process audio with at least 32 bits (or 64 bits on 64-bit arch)
-    a.iter()
-        .map(|x| ((*x as isize * vol) / vol_max) as i16)
-        .collect()
+pub fn volume_filter(a: Vec<f32>, vol: f32) -> Vec<f32> {
+    log::trace!("volume_filter a.len()={} vol={}", a.len(), vol,);
+    a.iter().map(|x| *x * vol).collect()
 }
 
 pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqError> {
@@ -102,11 +99,11 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
     // apply filters
-    let (l, r) = from_interleaved(&buf);
-    let l = volume_filter(&l, 10, 100);
-    let r = volume_filter(&r, 10, 100);
-    let buf = to_interleaved(&l, &r);
-
+    let buf = i16_to_f32(buf);
+    let (l, r) = from_interleaved(buf);
+    let l = volume_filter(l, 0.1);
+    let r = volume_filter(r, 0.1);
+    let buf = to_interleaved(l, r);
     let mut buf = buf.iter();
 
     // pa stream
@@ -117,8 +114,10 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     // let rate = player_info.default_sample_rate;
     let rate = reader.spec().sample_rate as f64; // try wav's rate
     let latency = player_info.default_low_output_latency;
+    // PortAudio supports audio in/out in f32 regardless of the native audio API.
+    // Applying filters in floating point avoids precision loss, so use f32 output here to reduce conversions.
     let stream_params =
-        pa::StreamParameters::<i16>::new(pa::DeviceIndex(dev as u32), ch, interleaved, latency);
+        pa::StreamParameters::<f32>::new(pa::DeviceIndex(dev as u32), ch, interleaved, latency);
     if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
         log::error!("format not supported err={}", e);
         return Err(DeqError::Format);
@@ -156,7 +155,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
                             log::debug!("wav finished");
                             is_finished = true;
                         }
-                        0 // silent
+                        0.0 // silent
                     }
                 };
                 w[i] = sample;
