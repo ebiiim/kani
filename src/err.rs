@@ -1,7 +1,7 @@
 use std::error;
 use std::fmt;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Debug)]
 pub enum DeqError {
     Device,
     Operation,
