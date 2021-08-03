@@ -7,11 +7,11 @@ pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
     log::trace!("from_interleaved a.len()={}", a.len());
     let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
     let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
-    for i in 0..a.len() {
+    for (i, s) in a.iter().enumerate() {
         if i % 2 == 0 {
-            l.push(a[i]);
+            l.push(*s);
         } else {
-            r.push(a[i]);
+            r.push(*s);
         }
     }
     log::trace!("from_interleaved l.len()={} r.len()={}", l.len(), r.len());
@@ -255,8 +255,8 @@ impl BiquadFilter {
 impl Appliable for BiquadFilter {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
-        for i in 0..samples.len() {
-            let x = samples[i] as f64;
+        for x in samples.iter() {
+            let x = *x as f64;
             let y = self.coef.b0_div_a0 * x
                 + self.coef.b1_div_a0 * self.buf_x[0]
                 + self.coef.b2_div_a0 * self.buf_x[1]

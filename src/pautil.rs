@@ -122,6 +122,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         }
         // write one frame
         if let Err(e) = stream.write(frame, |w| {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..num_samples {
                 let sample = match buf.next() {
                     Some(s) => *s,
