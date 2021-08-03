@@ -40,9 +40,38 @@ pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
     a
 }
 
-pub fn volume(a: Vec<f32>, vol: f32) -> Vec<f32> {
-    log::trace!("volume a.len()={} vol={}", a.len(), vol,);
-    a.iter().map(|x| *x * vol).collect()
+pub fn apply<T: Appliable>(mut filter: T, samples: Vec<f32>) -> Vec<f32> {
+    filter.apply(samples)
+}
+
+pub trait Appliable {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
+}
+
+#[derive(Debug)]
+pub struct Volume {
+    curve: VolumeCurve,
+    vol: f64,
+}
+
+#[derive(Debug)]
+pub enum VolumeCurve {
+    Liner,
+}
+
+impl Volume {
+    pub fn new(curve: VolumeCurve, vol: f64) -> Self {
+        log::debug!("volume curve={:?} vol={}", curve, vol);
+        Self { curve, vol }
+    }
+}
+
+impl Appliable for Volume {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        match self.curve {
+            VolumeCurve::Liner => samples.iter().map(|x| *x * self.vol as f32).collect(),
+        }
+    }
 }
 
 // Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
@@ -206,13 +235,7 @@ pub struct BiquadFilter {
 }
 
 impl BiquadFilter {
-    pub fn new(
-        filter_type: BQFType,
-        rate: f64,
-        f0: f64,
-        gain: f64,
-        param: BQFParam,
-    ) -> BiquadFilter {
+    pub fn new(filter_type: BQFType, rate: f64, f0: f64, gain: f64, param: BQFParam) -> Self {
         let coef = BQFCoef::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
             filter_type,
@@ -227,7 +250,10 @@ impl BiquadFilter {
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
     }
-    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+}
+
+impl Appliable for BiquadFilter {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::new();
         for i in 0..samples.len() {
             let x = samples[i] as f64;

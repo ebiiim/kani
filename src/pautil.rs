@@ -1,6 +1,7 @@
 use crate::err::DeqError;
 use crate::filter;
 use crate::filter::{BQFParam, BQFType, BiquadFilter};
+use crate::filter::{Volume, VolumeCurve};
 
 use portaudio as pa;
 
@@ -58,23 +59,25 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
 
     // apply filters
     let wav_rate = reader.spec().sample_rate as f64;
-    let mut l1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
-    let mut r1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
-    let mut l2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
-    let mut r2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
-    let mut l3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
-    let mut r3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
+    let l0 = Volume::new(VolumeCurve::Liner, 0.2);
+    let r0 = Volume::new(VolumeCurve::Liner, 0.2);
+    let l1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
+    let r1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
+    let l2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
+    let r2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
+    let l3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
+    let r3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
 
     let buf = filter::i16_to_f32(buf);
     let (l, r) = filter::from_interleaved(buf);
-    let l = filter::volume(l, 0.5);
-    let r = filter::volume(r, 0.5);
-    let l = l1.apply(l);
-    let r = r1.apply(r);
-    let l = l2.apply(l);
-    let r = r2.apply(r);
-    let l = l3.apply(l);
-    let r = r3.apply(r);
+    let l = filter::apply(l0, l);
+    let r = filter::apply(r0, r);
+    let l = filter::apply(l1, l);
+    let r = filter::apply(r1, r);
+    let l = filter::apply(l2, l);
+    let r = filter::apply(r2, r);
+    let l = filter::apply(l3, l);
+    let r = filter::apply(r3, r);
     let buf = filter::to_interleaved(l, r);
     let mut buf = buf.iter();
 
