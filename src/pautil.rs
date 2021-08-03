@@ -34,6 +34,54 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
     Err(DeqError::Device)
 }
 
+pub fn from_interleaved(a: &[i16]) -> (Vec<i16>, Vec<i16>) {
+    log::trace!("from_interleaved a.len()={}", a.len());
+    let mut l: Vec<i16> = vec![0; a.len() / 2];
+    let mut r: Vec<i16> = vec![0; a.len() / 2];
+    for i in 0..a.len() {
+        if i % 2 == 0 {
+            l[i / 2] = a[i];
+        } else {
+            r[i / 2] = a[i];
+        }
+    }
+    (l, r)
+}
+
+pub fn to_interleaved(l: &[i16], r: &[i16]) -> Vec<i16> {
+    log::trace!("from_interleaved l.len()={} r.len()={}", l.len(), r.len());
+    if l.len() != r.len() {
+        log::error!(
+            "channel buffers must have same length but l={} r={}",
+            l.len(),
+            r.len()
+        );
+        return Vec::new();
+    }
+    let mut a: Vec<i16> = vec![0; l.len() * 2];
+    for i in 0..a.len() {
+        if i % 2 == 0 {
+            a[i] = l[i / 2];
+        } else {
+            a[i] = r[i / 2];
+        }
+    }
+    a
+}
+
+pub fn volume_filter(a: &[i16], vol: isize, vol_max: isize) -> Vec<i16> {
+    log::trace!(
+        "volume_filter a.len()={} vol={} vol_max={}",
+        a.len(),
+        vol,
+        vol_max
+    );
+    // Process audio with at least 32 bits (or 64 bits on 64-bit arch)
+    a.iter()
+        .map(|x| ((*x as isize * vol) / vol_max) as i16)
+        .collect()
+}
+
 pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqError> {
     // read wav
     log::debug!("read wav {}", path);
@@ -52,6 +100,13 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         return Err(DeqError::Format);
     }
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
+
+    // apply filters
+    let (l, r) = from_interleaved(&buf);
+    let l = volume_filter(&l, 10, 100);
+    let r = volume_filter(&r, 10, 100);
+    let buf = to_interleaved(&l, &r);
+
     let mut buf = buf.iter();
 
     // pa stream
@@ -83,19 +138,12 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     }
     log::debug!("stream started info={:?}", stream.info());
 
-    // filter func
-    let filter_func = |x: i16| {
-        let volume_max = 100;
-        let volume = 50;
-        (x as i64 * volume) / volume_max
-    };
-
     // playback
     let mut is_finished = false;
     let num_samples = (frame * ch as u32) as usize;
     loop {
         if is_finished {
-            log::debug!("finish play stream");
+            log::debug!("finish playback stream");
             break;
         }
         // write one frame
@@ -111,13 +159,14 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
                         0 // silent
                     }
                 };
-                let filtered = filter_func(sample);
-                log::trace!("write i={} sample={} filtered={}", i, sample, filtered);
-                w[i] = filtered as i16;
+                w[i] = sample;
             }
         }) {
-            log::warn!("play stream err={}", e);
+            log::warn!("playback stream err={}", e);
         };
+    }
+    if let Err(e) = stream.stop() {
+        log::warn!("could not stop playback stream err={}", e);
     }
     Ok(())
 }
