@@ -56,7 +56,7 @@ pub struct Volume {
 
 #[derive(Debug)]
 pub enum VolumeCurve {
-    Liner,
+    Linear,
 }
 
 impl Volume {
@@ -69,7 +69,7 @@ impl Volume {
 impl Appliable for Volume {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         match self.curve {
-            VolumeCurve::Liner => samples.iter().map(|x| *x * self.vol as f32).collect(),
+            VolumeCurve::Linear => samples.iter().map(|x| *x * self.vol as f32).collect(),
         }
     }
 }

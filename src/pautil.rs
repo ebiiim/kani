@@ -59,8 +59,8 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
 
     // apply filters
     let wav_rate = reader.spec().sample_rate as f64;
-    let l0 = Volume::new(VolumeCurve::Liner, 0.2);
-    let r0 = Volume::new(VolumeCurve::Liner, 0.2);
+    let l0 = Volume::new(VolumeCurve::Linear, 0.2);
+    let r0 = Volume::new(VolumeCurve::Linear, 0.2);
     let l1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
     let r1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
     let l2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
