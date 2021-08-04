@@ -100,7 +100,7 @@ pub enum BQFParam {
 }
 
 #[derive(Debug)]
-struct BQFCoef {
+struct BQFCoeff {
     b0: f64,
     b1: f64,
     b2: f64,
@@ -114,8 +114,8 @@ struct BQFCoef {
     a2_div_a0: f64,
 }
 
-impl BQFCoef {
-    pub fn new(filter_type: &BQFType, rate: f64, f0: f64, gain: f64, param: &BQFParam) -> BQFCoef {
+impl BQFCoeff {
+    pub fn new(filter_type: &BQFType, rate: f64, f0: f64, gain: f64, param: &BQFParam) -> BQFCoeff {
         let a = 10.0f64.powf(gain / 40.0);
         let w0 = 2.0 * std::f64::consts::PI * f0 / rate;
         let w0_cos = w0.cos();
@@ -198,7 +198,7 @@ impl BQFCoef {
                 a2 = (a + 1.0) - (a - 1.0) * w0_cos - 2.0 * a.sqrt() * alpha;
             }
         }
-        BQFCoef {
+        BQFCoeff {
             b0,
             b1,
             b2,
@@ -231,12 +231,12 @@ pub struct BiquadFilter {
     /// output delay buffer
     buf_y: [f64; 2],
     /// coefficients
-    coef: BQFCoef,
+    coeff: BQFCoeff,
 }
 
 impl BiquadFilter {
     pub fn new(filter_type: BQFType, rate: f64, f0: f64, gain: f64, param: BQFParam) -> Self {
-        let coef = BQFCoef::new(&filter_type, rate, f0, gain, &param);
+        let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
             filter_type,
             rate,
@@ -245,7 +245,7 @@ impl BiquadFilter {
             param,
             buf_x: [0.0; 2],
             buf_y: [0.0; 2],
-            coef,
+            coeff,
         };
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
@@ -257,11 +257,11 @@ impl Appliable for BiquadFilter {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
         for x in samples.iter() {
             let x = *x as f64;
-            let y = self.coef.b0_div_a0 * x
-                + self.coef.b1_div_a0 * self.buf_x[0]
-                + self.coef.b2_div_a0 * self.buf_x[1]
-                - self.coef.a1_div_a0 * self.buf_y[0]
-                - self.coef.a2_div_a0 * self.buf_y[1];
+            let y = self.coeff.b0_div_a0 * x
+                + self.coeff.b1_div_a0 * self.buf_x[0]
+                + self.coeff.b2_div_a0 * self.buf_x[1]
+                - self.coeff.a1_div_a0 * self.buf_y[0]
+                - self.coeff.a2_div_a0 * self.buf_y[1];
             // delay
             self.buf_x[1] = self.buf_x[0];
             self.buf_x[0] = x;
