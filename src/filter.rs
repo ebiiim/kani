@@ -272,3 +272,31 @@ impl Appliable for BiquadFilter {
         buf
     }
 }
+
+fn _generate_impulse(n: usize) -> Vec<f32> {
+    let mut buf: Vec<f32> = vec![0.0; n];
+    buf[0] = 1.0;
+    buf
+}
+
+#[test]
+fn print_coeff() {
+    // let coeff =
+    //     BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)).coeff;
+    // let coeff = BiquadFilter::new(BQFType::HighPass, 48000.0, 250.0, 0.0, BQFParam::Q(0.707)).coeff;
+    let coeff = BiquadFilter::new(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)).coeff;
+    println!(
+        "b0, b1, b2 = {}, {}, {}\na0, a1, a2 = {}, {}, {}",
+        coeff.b0, coeff.b1, coeff.b2, coeff.a0, coeff.a1, coeff.a2
+    );
+}
+
+#[test]
+fn print_ir() {
+    let mut buf = _generate_impulse(48);
+    // buf =
+    //     BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)).apply(buf);
+    // buf = BiquadFilter::new(BQFType::HighPass, 48000.0, 250.0, 0.0, BQFParam::Q(0.707)).apply(buf);
+    buf = BiquadFilter::new(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)).apply(buf);
+    println!("{:?}", buf);
+}
