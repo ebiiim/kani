@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
     log::trace!("i16_to_f32 a.len()={}", a.len());
     a.iter().map(|x| *x as f32 / 32767.0).collect()
@@ -46,6 +48,98 @@ pub fn apply<T: Appliable>(mut filter: T, samples: Vec<f32>) -> Vec<f32> {
 
 pub trait Appliable {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
+}
+
+#[derive(Debug)]
+pub struct Delay {
+    tapnum: usize,
+    buf: VecDeque<f32>,
+}
+
+impl Delay {
+    pub fn new(time_ms: usize, sample_rate: usize) -> Self {
+        log::debug!("delay time_ms={} sample_rate={}", time_ms, sample_rate);
+        Self::with_tapnum(Self::calc_tapnum(time_ms, sample_rate))
+    }
+    fn calc_tapnum(time_ms: usize, sample_rate: usize) -> usize {
+        time_ms * sample_rate / 1000
+    }
+    pub fn with_tapnum(mut tapnum: usize) -> Self {
+        const _MAX_BUFSIZE: usize = 1 << 30; // 1GiB
+        const _MAX_TAPNUM: usize = _MAX_BUFSIZE >> 2; // f32 = 4byte
+        if tapnum > _MAX_TAPNUM {
+            log::warn!(
+                "ignored as tapnum={} requires more than 1 GiB buffer per channel",
+                tapnum
+            );
+            tapnum = 0;
+        }
+        if tapnum == 0 {
+            tapnum = 1; // buf.pop() panics when tapnum=0
+        }
+        log::debug!("delay tapnum={}", tapnum);
+        let buf: Vec<f32> = vec![0.0; tapnum];
+        let buf = VecDeque::from(buf);
+        Self { tapnum, buf }
+    }
+}
+
+impl Appliable for Delay {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        let mut y = Vec::with_capacity(samples.len());
+        for x in samples.iter() {
+            y.push(self.buf.pop_back().unwrap()); // already initialized in constructor
+            self.buf.push_front(*x);
+        }
+        y
+    }
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_delay() {
+    let want: Vec<f32> = vec![
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
+        0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23,
+        0.24,
+        // 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, // Note: the rest is still in the buffer
+    ];
+    let mut buf = vec![
+        0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15,
+        0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.30,
+    ];
+    buf = Delay::with_tapnum(6).apply(buf);
+    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_delay_0() {
+    let want: Vec<f32> = vec![
+        0.0, 0.01, 0.02, 0.03,
+        // 0.04, // Note: the rest is still in the buffer
+    ];
+    // case: tapnum = 0
+    let mut buf = vec![0.01, 0.02, 0.03, 0.04];
+    buf = Delay::with_tapnum(0).apply(buf);
+    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
+    // case: too large tapnum
+    let mut buf = vec![0.01, 0.02, 0.03, 0.04];
+    buf = Delay::with_tapnum(1 << 31).apply(buf);
+    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
+}
+
+#[test]
+#[ignore]
+fn check_delay_mem() {
+    // this test needs 3GiB RAM (1GiB for x, Delay.buf, y, respectively)
+    // `cargo test -- --ignored` to run
+    let tapsize = 1 << 30 >> 2;
+    let x = vec![0.123; tapsize];
+    let _y = Delay::with_tapnum(tapsize).apply(x);
 }
 
 #[derive(Debug)]

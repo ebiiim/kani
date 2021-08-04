@@ -1,5 +1,6 @@
 use crate::err::DeqError;
 use crate::filter;
+use crate::filter::Delay;
 use crate::filter::{BQFParam, BQFType, BiquadFilter};
 use crate::filter::{Volume, VolumeCurve};
 
@@ -58,26 +59,30 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
     // apply filters
-    let wav_rate = reader.spec().sample_rate as f64;
-    let l0 = Volume::new(VolumeCurve::Linear, 0.2);
-    let r0 = Volume::new(VolumeCurve::Linear, 0.2);
-    let l1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
-    let r1 = BiquadFilter::new(BQFType::HighPass, wav_rate, 250.0, 0.0, BQFParam::Q(0.707));
-    let l2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
-    let r2 = BiquadFilter::new(BQFType::LowPass, wav_rate, 8000.0, 0.0, BQFParam::Q(0.707));
-    let l3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
-    let r3 = BiquadFilter::new(BQFType::PeakingEQ, wav_rate, 880.0, 9.0, BQFParam::BW(1.0));
+    let fs = reader.spec().sample_rate as f64;
+    let l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
+    let r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
+    let l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
+    let r2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
+    let l3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
+    let r3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
+    let lv = Volume::new(VolumeCurve::Linear, 0.2);
+    let rv = Volume::new(VolumeCurve::Linear, 0.2);
+    let ld = Delay::new(200, fs as usize);
+    let rd = Delay::new(1 << 30 >> 2, fs as usize);
 
     let buf = filter::i16_to_f32(buf);
     let (l, r) = filter::from_interleaved(buf);
-    let l = filter::apply(l0, l);
-    let r = filter::apply(r0, r);
     let l = filter::apply(l1, l);
     let r = filter::apply(r1, r);
     let l = filter::apply(l2, l);
     let r = filter::apply(r2, r);
     let l = filter::apply(l3, l);
     let r = filter::apply(r3, r);
+    let l = filter::apply(lv, l);
+    let r = filter::apply(rv, r);
+    let l = filter::apply(ld, l);
+    let r = filter::apply(rd, r);
     let buf = filter::to_interleaved(l, r);
     let mut buf = buf.iter();
 
@@ -87,7 +92,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let interleaved = true;
     let player_info = get_device_info(pa, dev)?;
     // let rate = player_info.default_sample_rate;
-    let rate = wav_rate; // try wav's rate instead of default_sample_rate
+    let rate = fs; // try wav's rate instead of default_sample_rate
     let latency = player_info.default_low_output_latency;
     // PortAudio supports audio in/out in f32 regardless of the native audio API.
     // Applying filters in floating point avoids precision loss, so use f32 output here to reduce conversions.
