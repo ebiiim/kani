@@ -192,6 +192,9 @@ impl Delay {
         let buf = VecDeque::from(buf);
         Self { tapnum, buf }
     }
+    pub fn newb(time_ms: usize, sample_rate: usize) -> Box<Self> {
+        Box::new(Self::new(time_ms, sample_rate))
+    }
 }
 
 impl Appliable for Delay {
@@ -273,6 +276,9 @@ impl Volume {
         };
         log::debug!("volume {:?}({})=>{}", curve, val, ratio);
         Self { curve, val, ratio }
+    }
+    pub fn newb(curve: VolumeCurve, val: f32) -> Box<Self> {
+        Box::new(Self::new(curve, val))
     }
 }
 
@@ -439,6 +445,13 @@ impl BQFCoeff {
             a2_div_a0: a2 / a0,
         }
     }
+
+    pub fn dump(&self) -> String {
+        format!(
+            "b\n{}\n{}\n{}\na\n{}\n{}\n{}",
+            self.b0, self.b1, self.b2, self.a0, self.a1, self.a2
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -477,6 +490,9 @@ impl BiquadFilter {
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
     }
+    pub fn newb(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Box<Self> {
+        Box::new(Self::new(filter_type, rate, f0, gain, param))
+    }
 }
 
 impl Appliable for BiquadFilter {
@@ -506,24 +522,37 @@ fn _generate_impulse(n: usize) -> Vec<f32> {
     buf
 }
 
-#[test]
-fn print_coeff() {
-    // let coeff =
-    //     BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)).coeff;
-    // let coeff = BiquadFilter::new(BQFType::HighPass, 48000.0, 250.0, 0.0, BQFParam::Q(0.707)).coeff;
-    let coeff = BiquadFilter::new(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)).coeff;
-    println!(
-        "b0, b1, b2 = {}, {}, {}\na0, a1, a2 = {}, {}, {}",
-        coeff.b0, coeff.b1, coeff.b2, coeff.a0, coeff.a1, coeff.a2
-    );
+fn dump_coeffs(mut v: Vec<BiquadFilter>) -> String {
+    v.iter_mut().fold(String::new(), |acc, x| {
+        format!("{}\n{}", acc, x.coeff.dump())
+    })
+}
+
+fn dump_ir(mut v: Vec<Box<dyn Appliable>>, n: usize) -> String {
+    let buf = _generate_impulse(n);
+    let buf = v.iter_mut().fold(buf, |x, f| f.apply(x));
+    buf.iter()
+        .fold(String::new(), |acc, &x| acc + &x.to_string() + "\n")
+        .to_string()
 }
 
 #[test]
-fn print_ir() {
-    let mut buf = _generate_impulse(48);
-    // buf =
-    //     BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)).apply(buf);
-    // buf = BiquadFilter::new(BQFType::HighPass, 48000.0, 250.0, 0.0, BQFParam::Q(0.707)).apply(buf);
-    buf = BiquadFilter::new(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)).apply(buf);
-    println!("{:?}", buf);
+fn test_run_dump_coeff() {
+    let v: Vec<BiquadFilter> = vec![
+        BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)),
+        BiquadFilter::new(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)),
+        BiquadFilter::new(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)),
+    ];
+    print!("{}", dump_coeffs(v));
+}
+
+#[test]
+fn test_run_dump_ir() {
+    let n = 48;
+    let v: Vec<Box<dyn Appliable>> = vec![
+        BiquadFilter::newb(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)),
+        BiquadFilter::newb(BQFType::PeakingEQ, 48000.0, 440.0, -6.0, BQFParam::Q(2.828)),
+        BiquadFilter::newb(BQFType::LowPass, 48000.0, 8000.0, 0.0, BQFParam::Q(0.707)),
+    ];
+    println!("{}", dump_ir(v, n));
 }

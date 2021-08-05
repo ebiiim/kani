@@ -58,34 +58,23 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     }
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
-    // apply filters
+    // init filters
     let fs = reader.spec().sample_rate as f32;
-    let l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
-    let r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
-    let l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
-    let r2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
-    let l3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
-    let r3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
-    let lv = Volume::new(VolumeCurve::Linear, 0.2);
-    let rv = Volume::new(VolumeCurve::Linear, 0.2);
-    let ld = Delay::new(200, fs as usize);
-    let rd = Delay::new(200, fs as usize);
-
     let mut lfs: Vec<Box<dyn filter::Appliable>> = vec![
-        Box::new(l1),
-        Box::new(l2),
-        Box::new(l3),
-        Box::new(lv),
-        Box::new(ld),
+        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Linear, 0.2),
+        Delay::newb(200, fs as usize),
     ];
     let mut rfs: Vec<Box<dyn filter::Appliable>> = vec![
-        Box::new(r1),
-        Box::new(r2),
-        Box::new(r3),
-        Box::new(rv),
-        Box::new(rd),
+        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Linear, 0.2),
+        Delay::newb(200, fs as usize),
     ];
-
+    // apply filters
     let buf = filter::i16_to_f32(buf);
     let (l, r) = filter::from_interleaved(buf);
     let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
@@ -187,32 +176,21 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
     let (sender, receiver) = ::std::sync::mpsc::channel();
     let mut count: i64 = 0;
 
-    // apply filters
+    // init filters
     let fs = rate as f32;
-    let l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
-    let r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
-    let l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
-    let r2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
-    let l3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
-    let r3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
-    let lv = Volume::new(VolumeCurve::Linear, 0.2);
-    let rv = Volume::new(VolumeCurve::Linear, 0.2);
-    let ld = Delay::new(200, fs as usize);
-    let rd = Delay::new(200, fs as usize);
-
     let mut lfs: Vec<Box<dyn filter::Appliable>> = vec![
-        Box::new(l1),
-        Box::new(l2),
-        Box::new(l3),
-        Box::new(lv),
-        Box::new(ld),
+        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Linear, 0.2),
+        Delay::newb(200, fs as usize),
     ];
     let mut rfs: Vec<Box<dyn filter::Appliable>> = vec![
-        Box::new(r1),
-        Box::new(r2),
-        Box::new(r3),
-        Box::new(rv),
-        Box::new(rd),
+        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Linear, 0.2),
+        Delay::newb(200, fs as usize),
     ];
 
     // setup callback function
@@ -221,6 +199,7 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
                              out_buffer,
                              ..
                          }| {
+        // apply filters
         let (l, r) = filter::from_interleaved(in_buffer.to_vec());
         let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
         let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
