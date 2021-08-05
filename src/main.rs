@@ -29,10 +29,6 @@ fn main() {
         process::exit(0);
     }
     let pa = pa.unwrap();
-    let (input_dev, output_dev) = cli::select_devices_loop(&pa);
 
-    // play wav
-    if let Err(e) = pautil::play_wav(&pa, "test/48000-16b-2ch.wav", output_dev) {
-        log::error!("play wav err={}", e);
-    }
+    cli::start(&pa);
 }

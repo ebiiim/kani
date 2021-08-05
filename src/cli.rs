@@ -32,7 +32,7 @@ fn read_str(s: &str) -> Result<String, DeqError> {
         return Err(DeqError::Operation);
     }
     log::trace!("read_str={}", input);
-    Ok(input)
+    Ok(input.trim().to_string())
 }
 
 fn read_int(s: &str) -> Result<usize, DeqError> {
@@ -44,7 +44,7 @@ fn read_int(s: &str) -> Result<usize, DeqError> {
     }
 }
 
-pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
+pub fn start(pa: &pa::PortAudio) {
     let term_clear = || print!("\x1B[2J");
     let term_left_top = || print!("\x1B[1;1H");
     let no_dev = 1 << 31;
@@ -56,16 +56,13 @@ pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
     term_left_top();
 
     loop {
-        if input_dev != no_dev && output_dev != no_dev {
-            break;
-        }
-        let cmd = read_int("Command(0:devices,1:detail,2:input,3:output,9:exit)>");
+        let cmd = read_int("[1]devices [2]detail [3]input [4]output [8]play wav [9]play [0]quit >");
         match cmd {
             Err(_) => {
                 continue;
             }
             Ok(cmd) => {
-                if cmd == 0 {
+                if cmd == 1 {
                     println!("PortAudio version: {}", pa::version());
                     let dc = pa.device_count();
                     if dc.is_err() {
@@ -76,13 +73,13 @@ pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
                     if print_devices(pa).is_err() {
                         log::error!("could not print devices");
                     }
-                } else if cmd == 1 {
+                } else if cmd == 2 {
                     if let Ok(n) = read_int("see device> ") {
                         if print_device_info(pa, n).is_err() {
                             log::error!("could not find device id={}", n);
                         }
                     }
-                } else if cmd == 2 {
+                } else if cmd == 3 {
                     if let Ok(n) = read_int("input device> ") {
                         if pautil::get_device_info(pa, n).is_ok() {
                             input_dev = n;
@@ -90,7 +87,7 @@ pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
                             log::error!("could not find device id={}", n);
                         }
                     }
-                } else if cmd == 3 {
+                } else if cmd == 4 {
                     if let Ok(n) = read_int("output device> ") {
                         if pautil::get_device_info(pa, n).is_ok() {
                             output_dev = n;
@@ -98,7 +95,27 @@ pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
                             log::error!("could not find device id={}", n);
                         }
                     }
+                } else if cmd == 8 {
+                    if output_dev == no_dev {
+                        log::error!("please select output device first");
+                        continue;
+                    }
+                    if let Ok(n) = read_str("file name> ") {
+                        if let Err(e) = pautil::play_wav(pa, &n, output_dev) {
+                            log::error!("play wav err={}", e);
+                            process::exit(0);
+                        }
+                    }
                 } else if cmd == 9 {
+                    if input_dev == no_dev || output_dev == no_dev {
+                        log::error!("please select devices first");
+                        continue;
+                    }
+                    if let Err(e) = pautil::play(pa, input_dev, output_dev) {
+                        log::error!("play err={}", e);
+                        process::exit(0);
+                    }
+                } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);
                 } else {
@@ -108,10 +125,4 @@ pub fn select_devices_loop(pa: &pa::PortAudio) -> (usize, usize) {
             }
         }
     }
-    log::debug!(
-        "devices selected input={}, output={}",
-        input_dev,
-        output_dev
-    );
-    (input_dev, output_dev)
 }
