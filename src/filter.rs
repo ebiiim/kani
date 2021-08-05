@@ -263,7 +263,7 @@ fn check_delay_mem() {
 #[derive(Debug)]
 pub struct Volume {
     curve: VolumeCurve,
-    vol: f64,
+    vol: f32,
 }
 
 #[derive(Debug)]
@@ -272,7 +272,7 @@ pub enum VolumeCurve {
 }
 
 impl Volume {
-    pub fn new(curve: VolumeCurve, vol: f64) -> Self {
+    pub fn new(curve: VolumeCurve, vol: f32) -> Self {
         log::debug!("volume curve={:?} vol={}", curve, vol);
         Self { curve, vol }
     }
@@ -307,41 +307,41 @@ pub enum BQFType {
 #[derive(PartialEq, Debug)]
 pub enum BQFParam {
     // Q factor
-    Q(f64),
+    Q(f32),
     // Bandwidth (Octave)
-    BW(f64),
+    BW(f32),
     // Slope
-    S(f64),
+    S(f32),
 }
 
 #[derive(Debug)]
 struct BQFCoeff {
-    b0: f64,
-    b1: f64,
-    b2: f64,
-    a0: f64,
-    a1: f64,
-    a2: f64,
-    b0_div_a0: f64,
-    b1_div_a0: f64,
-    b2_div_a0: f64,
-    a1_div_a0: f64,
-    a2_div_a0: f64,
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a0: f32,
+    a1: f32,
+    a2: f32,
+    b0_div_a0: f32,
+    b1_div_a0: f32,
+    b2_div_a0: f32,
+    a1_div_a0: f32,
+    a2_div_a0: f32,
 }
 
 impl BQFCoeff {
-    pub fn new(filter_type: &BQFType, rate: f64, f0: f64, gain: f64, param: &BQFParam) -> BQFCoeff {
-        let a = 10.0f64.powf(gain / 40.0);
-        let w0 = 2.0 * std::f64::consts::PI * f0 / rate;
+    pub fn new(filter_type: &BQFType, rate: f32, f0: f32, gain: f32, param: &BQFParam) -> BQFCoeff {
+        let a = 10.0f32.powf(gain / 40.0);
+        let w0 = 2.0 * std::f32::consts::PI * f0 / rate;
         let w0_cos = w0.cos();
         let w0_sin = w0.sin();
         let alpha = match param {
             BQFParam::Q(q) => w0_sin / (2.0 * q),
             BQFParam::BW(bw) => {
                 // I'm not so sure about this
-                // w0_sin * (2.0f64.log10() / 2.0 * bw * w0 / w0_sin).sinh()
+                // w0_sin * (2.0f32.log10() / 2.0 * bw * w0 / w0_sin).sinh()
                 // So I'd like to convert Bandwidth (octave) to Q based on formula [here](http://www.sengpielaudio.com/calculator-bandwidth.htm)
-                let bw2q = |bw: f64| (2.0f64.powf(bw)).sqrt() / (2.0f64.powf(bw) - 1.0);
+                let bw2q = |bw: f32| (2.0f32.powf(bw)).sqrt() / (2.0f32.powf(bw) - 1.0);
                 w0_sin / (2.0 * bw2q(*bw))
             }
             BQFParam::S(s) => w0_sin / 2.0 * ((a + 1.0 / a) * (1.0 / s - 1.0) + 2.0).sqrt(),
@@ -434,23 +434,23 @@ pub struct BiquadFilter {
     /// filter type
     filter_type: BQFType,
     /// sampling rate
-    rate: f64,
+    rate: f32,
     /// cutoff/center freq
-    f0: f64,
+    f0: f32,
     /// gain in dB (PeakingEQ | LowShelf | HighShelf)     
-    gain: f64,
+    gain: f32,
     /// Q/Bandwidth/Slope value
     param: BQFParam,
     /// input delay buffer
-    buf_x: [f64; 2],
+    buf_x: [f32; 2],
     /// output delay buffer
-    buf_y: [f64; 2],
+    buf_y: [f32; 2],
     /// coefficients
     coeff: BQFCoeff,
 }
 
 impl BiquadFilter {
-    pub fn new(filter_type: BQFType, rate: f64, f0: f64, gain: f64, param: BQFParam) -> Self {
+    pub fn new(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Self {
         let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
             filter_type,
@@ -469,7 +469,7 @@ impl BiquadFilter {
     pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
         for x in samples.iter() {
-            let x = *x as f64;
+            let x = *x as f32;
             let y = self.coeff.b0_div_a0 * x
                 + self.coeff.b1_div_a0 * self.buf_x[0]
                 + self.coeff.b2_div_a0 * self.buf_x[1]

@@ -59,7 +59,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
     // apply filters
-    let fs = reader.spec().sample_rate as f64;
+    let fs = reader.spec().sample_rate as f32;
     let l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
     let r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
     let l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
@@ -92,7 +92,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let interleaved = true;
     let player_info = get_device_info(pa, dev)?;
     // let rate = player_info.default_sample_rate;
-    let rate = fs; // try wav's rate instead of default_sample_rate
+    let rate = fs as f64; // try wav's rate instead of default_sample_rate
     let latency = player_info.default_low_output_latency;
     // PortAudio supports audio in/out in f32 regardless of the native audio API.
     // Applying filters in floating point avoids precision loss, so use f32 output here to reduce conversions.
@@ -181,7 +181,7 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
     let mut count: i64 = 0;
 
     // apply filters
-    let fs = rate;
+    let fs = rate as f32;
     let mut l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
     let mut r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
     let mut l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
