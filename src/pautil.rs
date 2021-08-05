@@ -69,7 +69,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let lv = Volume::new(VolumeCurve::Linear, 0.2);
     let rv = Volume::new(VolumeCurve::Linear, 0.2);
     let ld = Delay::new(200, fs as usize);
-    let rd = Delay::new(1 << 30 >> 2, fs as usize);
+    let rd = Delay::new(200, fs as usize);
 
     let buf = filter::i16_to_f32(buf);
     let (l, r) = filter::from_interleaved(buf);
@@ -148,5 +148,119 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     if let Err(e) = stream.stop() {
         log::warn!("could not stop playback stream err={}", e);
     }
+    Ok(())
+}
+
+pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqError> {
+    let ch = 2;
+    let frame = 1024;
+    let interleaved = true;
+    let i_dev_info = get_device_info(pa, i_dev)?;
+    let o_dev_info = get_device_info(pa, o_dev)?;
+    let rate;
+    #[allow(clippy::float_cmp)]
+    if i_dev_info.default_sample_rate == o_dev_info.default_sample_rate {
+        rate = i_dev_info.default_sample_rate;
+    } else {
+        rate = 48000.0; // most devices are compatible with this
+    }
+    let i_latency = i_dev_info.default_low_output_latency;
+    let o_latency = o_dev_info.default_low_output_latency;
+    let i_params =
+        pa::StreamParameters::<f32>::new(pa::DeviceIndex(i_dev as u32), ch, interleaved, i_latency);
+    let o_params =
+        pa::StreamParameters::<f32>::new(pa::DeviceIndex(o_dev as u32), ch, interleaved, o_latency);
+    if let Err(e) = pa.is_duplex_format_supported(i_params, o_params, rate) {
+        log::error!("format not supported err={}", e);
+        return Err(DeqError::Format);
+    }
+    let settings = pa::DuplexStreamSettings::new(i_params, o_params, rate, frame);
+
+    // count total frames; exit if received -1
+    let (sender, receiver) = ::std::sync::mpsc::channel();
+    let mut count: i64 = 0;
+
+    // apply filters
+    let fs = rate;
+    let mut l1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
+    let mut r1 = BiquadFilter::new(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707));
+    let mut l2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
+    let mut r2 = BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707));
+    let mut l3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
+    let mut r3 = BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0));
+    let mut lv = Volume::new(VolumeCurve::Linear, 0.2);
+    let mut rv = Volume::new(VolumeCurve::Linear, 0.2);
+    let mut ld = Delay::new(200, fs as usize);
+    let mut rd = Delay::new(200, fs as usize);
+
+    // setup callback function
+    let callback = move |pa::DuplexStreamCallbackArgs {
+                             in_buffer,
+                             out_buffer,
+                             ..
+                         }| {
+        let (l, r) = filter::from_interleaved(in_buffer.to_vec());
+        let l = l1.apply(l);
+        let r = r1.apply(r);
+        let l = l2.apply(l);
+        let r = r2.apply(r);
+        let l = l3.apply(l);
+        let r = r3.apply(r);
+        let l = lv.apply(l);
+        let r = rv.apply(r);
+        let l = ld.apply(l);
+        let r = rd.apply(r);
+        let buf = filter::to_interleaved(l, r);
+
+        for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.iter()) {
+            *o_sample = *i_sample;
+        }
+
+        sender.send(count).ok();
+        count += 1;
+
+        // TODO
+        if true {
+            pa::Continue
+        } else {
+            sender.send(-1).ok();
+            pa::Complete
+        }
+    };
+
+    log::trace!("open a non-blocking stream");
+    let stream = pa.open_non_blocking_stream(settings, callback);
+    if stream.is_err() {
+        log::error!("failed to open the stream");
+        return Err(DeqError::Format);
+    }
+    let mut stream = stream.unwrap();
+    if let Err(e) = stream.start() {
+        log::error!("failed to open stream err={:?}", e);
+        return Err(DeqError::Format);
+    }
+
+    // block
+    loop {
+        let c = receiver.recv().unwrap_or(0);
+        log::trace!("frame {:?}", c);
+        if c == -1 {
+            log::debug!("stop");
+            break;
+        }
+    }
+    if let Err(e) = stream.stop() {
+        log::warn!("could not stop playback stream err={}", e);
+    }
+    loop {
+        let cont = stream.is_active();
+        if let Err(e) = cont {
+            log::warn!("stream.is_active() err={:?}", e);
+        }
+        if !cont.unwrap() {
+            break;
+        }
+    }
+
     Ok(())
 }
