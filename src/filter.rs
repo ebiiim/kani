@@ -263,24 +263,47 @@ fn check_delay_mem() {
 #[derive(Debug)]
 pub struct Volume {
     curve: VolumeCurve,
-    vol: f32,
+    val: f32,
+    ratio: f32,
 }
 
 #[derive(Debug)]
 pub enum VolumeCurve {
     Linear,
+    Gain,
 }
 
 impl Volume {
-    pub fn new(curve: VolumeCurve, vol: f32) -> Self {
-        log::debug!("volume curve={:?} vol={}", curve, vol);
-        Self { curve, vol }
+    pub fn new(curve: VolumeCurve, val: f32) -> Self {
+        let ratio = match curve {
+            VolumeCurve::Linear => val,
+            VolumeCurve::Gain => 10.0f32.powf(val / 20.0),
+        };
+        log::debug!("volume {:?}({})=>{}", curve, val, ratio);
+        Self { curve, val, ratio }
     }
     pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        match self.curve {
-            VolumeCurve::Linear => samples.iter().map(|x| *x * self.vol as f32).collect(),
-        }
+        samples.iter().map(|x| *x * self.ratio as f32).collect()
     }
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_volume_linear() {
+    let want: Vec<f32> = vec![0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
+    let mut buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    buf = Volume::new(VolumeCurve::Linear, 0.5).apply(buf);
+    assert!(buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0)
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_volume_gain() {
+    let mut buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    let g_n6 = 0.5011872f32;
+    let want: Vec<f32> = buf.clone().iter().map(|x| x * g_n6).collect();
+    buf = Volume::new(VolumeCurve::Gain, -6.0).apply(buf);
+    assert!(buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0)
 }
 
 impl Appliable for Volume {
