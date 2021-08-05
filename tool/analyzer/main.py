@@ -6,7 +6,6 @@ import math
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy.core.numeric import convolve
 from scipy import signal
 from functools import reduce
 
@@ -187,7 +186,7 @@ def main():
     result_type, vb, va, ir = parse_input(file)
     if result_type == 0:
         print("wrong format", file=sys.stderr)
-        exit(1)
+        sys.exit(1)
     if result_type == 1:
         is_coeff = True
     title = args.title
@@ -207,7 +206,7 @@ def main():
         plot_from_ir(ir, n=2400, title=title, fs=args.rate,
                      show=args.show, save=args.save)
 
-    exit(0)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

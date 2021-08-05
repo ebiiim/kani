@@ -6,21 +6,21 @@ Plot frequency response and phase from coefficients or impulse response.
 
 Show usage:
 ```sh
-./main.py -h
+./analyzer -h
 ```
 
 Read coefficients:
 ```sh
-cat example/coeff.txt | ./main.py
+cat example/coeff.txt | ./analyzer
 # or
-./main.py -i example/coeff.txt
+./analyzer -i example/coeff.txt
 ```
 
 Read impulse response:
 ```sh
-cat example/ir1.txt | ./main.py
+cat example/ir1.txt | ./analyzer
 # or 
-./main.py -i example/ir1.txt
+./analyzer -i example/ir1.txt
 ```
 
 Options:
