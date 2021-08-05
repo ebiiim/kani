@@ -1,12 +1,93 @@
 use std::collections::VecDeque;
 
+/// [-32768, 32767] -> [-1.0, 1.0]
 pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
-    log::trace!("i16_to_f32 a.len()={}", a.len());
-    a.iter().map(|x| *x as f32 / 32767.0).collect()
+    a.iter()
+        .map(|x| {
+            let x = *x;
+            if x < 0 {
+                x as f32 / 0x8000 as f32
+            } else {
+                x as f32 / 0x7fff as f32
+            }
+        })
+        .collect()
+}
+
+/// [-1.0, 1.0] -> [-32768, 32767]
+pub fn f32_to_i16(a: Vec<f32>) -> Vec<i16> {
+    a.iter()
+        .map(|x| {
+            let x = *x;
+            if x < 0.0 {
+                (x * 0x8000 as f32) as i16
+            } else {
+                (x * 0x7fff as f32) as i16
+            }
+        })
+        .collect()
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_i16_to_f32() {
+    let want: Vec<f32> = vec![
+        0.0,
+        3.051851E-5,
+        6.103702E-5,
+        9.155553E-5,
+        -3.0517578E-5,
+        -6.1035156E-5,
+        -9.1552734E-5,
+        1.0,
+        -1.0,
+    ];
+    let buf = vec![0, 1, 2, 3, -1, -2, -3, std::i16::MAX, std::i16::MIN];
+    let got = i16_to_f32(buf);
+    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_f32_to_i16() {
+    let want: Vec<i16> = vec![
+        0,
+        1,
+        2,
+        3,
+        -1,
+        -2,
+        -3,
+        std::i16::MAX,
+        std::i16::MIN,
+        std::i16::MAX,
+        std::i16::MIN,
+        std::i16::MAX,
+        std::i16::MIN,
+    ];
+    let buf = vec![
+        0.0,
+        3.051851E-5,
+        6.103702E-5,
+        9.155553E-5,
+        -3.0517578E-5,
+        -6.1035156E-5,
+        -9.1552734E-5,
+        1.0,
+        -1.0,
+        // round to [-1.0, 1.0]
+        1.0000001,
+        -1.0000001,
+        123.456,
+        -123.456,
+    ];
+    let got = f32_to_i16(buf);
+    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
 }
 
 pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
-    log::trace!("from_interleaved a.len()={}", a.len());
     let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
     let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
     for (i, s) in a.iter().enumerate() {
@@ -16,34 +97,59 @@ pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
             r.push(*s);
         }
     }
-    log::trace!("from_interleaved l.len()={} r.len()={}", l.len(), r.len());
     (l, r)
 }
 
+/// Interleaves two vectors.
+///
+/// # Panics
+///
+/// Panics if `l.len()` != `r.len()`.
 pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
-    log::trace!("to_interleaved l.len()={} r.len()={}", l.len(), r.len());
     if l.len() != r.len() {
-        log::error!(
-            "channel buffers must have same length but l={} r={}",
+        panic!(
+            "vectors must have same length but l={} r={}",
             l.len(),
             r.len()
-        );
-        return Vec::new();
+        )
     }
     let mut a: Vec<f32> = Vec::with_capacity(l.len() * 2);
-    for i in 0..(l.len() * 2) {
-        if i % 2 == 0 {
-            a.push(l[i / 2]);
-        } else {
-            a.push(r[i / 2]);
-        }
+    for (lv, rv) in l.iter().zip(&r) {
+        a.push(*lv);
+        a.push(*rv);
     }
-    log::trace!("to_interleaved a.len()={}", a.len());
     a
 }
 
-pub fn apply<T: Appliable>(mut filter: T, samples: Vec<f32>) -> Vec<f32> {
-    filter.apply(samples)
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_from_interleaved() {
+    let want_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
+    let want_r: Vec<f32> = vec![0.2, 0.4, 0.6, 0.8];
+    let buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let (got_l, got_r) = from_interleaved(buf);
+    let ok_l = got_l.iter().zip(&want_l).filter(|&(a, b)| a != b).count() == 0;
+    let ok_r = got_r.iter().zip(&want_r).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok_l && ok_r);
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn test_to_interleaved() {
+    let want = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let buf_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
+    let buf_r: Vec<f32> = vec![0.2, 0.4, 0.6, 0.8];
+    let got = to_interleaved(buf_l, buf_r);
+    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
+    assert!(ok);
+}
+
+#[test]
+#[should_panic]
+fn test_to_interleaved_invalid_vec() {
+    let buf_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
+    let buf_r: Vec<f32> = vec![0.2, 0.4, 0.6];
+    to_interleaved(buf_l, buf_r);
 }
 
 pub trait Appliable {
