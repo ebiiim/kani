@@ -156,10 +156,6 @@ pub trait Appliable {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
 }
 
-pub fn apply<T: Appliable>(mut filter: T, samples: Vec<f32>) -> Vec<f32> {
-    filter.apply(samples)
-}
-
 #[derive(Debug)]
 pub struct Delay {
     tapnum: usize,
@@ -196,8 +192,10 @@ impl Delay {
         let buf = VecDeque::from(buf);
         Self { tapnum, buf }
     }
+}
 
-    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+impl Appliable for Delay {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         if self.tapnum == 0 {
             return samples; // do nothing
         }
@@ -207,12 +205,6 @@ impl Delay {
             self.buf.push_front(*x);
         }
         y
-    }
-}
-
-impl Appliable for Delay {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        self.apply(samples)
     }
 }
 
@@ -282,7 +274,10 @@ impl Volume {
         log::debug!("volume {:?}({})=>{}", curve, val, ratio);
         Self { curve, val, ratio }
     }
-    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+}
+
+impl Appliable for Volume {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         samples.iter().map(|x| *x * self.ratio as f32).collect()
     }
 }
@@ -304,12 +299,6 @@ fn test_volume_gain() {
     let want: Vec<f32> = buf.clone().iter().map(|x| x * g_n6).collect();
     buf = Volume::new(VolumeCurve::Gain, -6.0).apply(buf);
     assert!(buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0)
-}
-
-impl Appliable for Volume {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        self.apply(samples)
-    }
 }
 
 // Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
@@ -488,8 +477,10 @@ impl BiquadFilter {
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
     }
+}
 
-    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+impl Appliable for BiquadFilter {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
         for x in samples.iter() {
             let x = *x as f32;
@@ -506,12 +497,6 @@ impl BiquadFilter {
             buf.push(y as f32);
         }
         buf
-    }
-}
-
-impl Appliable for BiquadFilter {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        self.apply(samples)
     }
 }
 
