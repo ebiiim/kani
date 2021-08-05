@@ -156,6 +156,10 @@ pub trait Appliable {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
 }
 
+pub fn apply<T: Appliable>(mut filter: T, samples: Vec<f32>) -> Vec<f32> {
+    filter.apply(samples)
+}
+
 #[derive(Debug)]
 pub struct Delay {
     tapnum: usize,
@@ -163,6 +167,13 @@ pub struct Delay {
 }
 
 impl Delay {
+    const MAX_TAPNUM: usize = 1 << 30 >> 2; // 1GiB f32 array
+    /// Initializes Delay with given duration in millisecond and sampling rate.
+    ///
+    /// # Panics
+    ///
+    /// Panics if it needs more than 1GiB mem.
+    /// See also: Delay::with_tapnum
     pub fn new(time_ms: usize, sample_rate: usize) -> Self {
         log::debug!("delay time_ms={} sample_rate={}", time_ms, sample_rate);
         Self::with_tapnum(Self::calc_tapnum(time_ms, sample_rate))
@@ -170,34 +181,38 @@ impl Delay {
     fn calc_tapnum(time_ms: usize, sample_rate: usize) -> usize {
         time_ms * sample_rate / 1000
     }
-    pub fn with_tapnum(mut tapnum: usize) -> Self {
-        const _MAX_BUFSIZE: usize = 1 << 30; // 1GiB
-        const _MAX_TAPNUM: usize = _MAX_BUFSIZE >> 2; // f32 = 4byte
-        if tapnum > _MAX_TAPNUM {
-            log::warn!(
-                "ignored as tapnum={} requires more than 1 GiB buffer per channel",
-                tapnum
-            );
-            tapnum = 0;
-        }
-        if tapnum == 0 {
-            tapnum = 1; // buf.pop() panics when tapnum=0
+    /// Initializes Delay with given taps.
+    ///
+    /// # Panics
+    ///
+    /// Panics if tapnum > (2^28) as it needs more than 1GiB mem.
+    /// FYI: tapnum=2^28 means >699000ms delay at 384kHz :D
+    pub fn with_tapnum(tapnum: usize) -> Self {
+        if tapnum > Self::MAX_TAPNUM {
+            panic!("too long duration")
         }
         log::debug!("delay tapnum={}", tapnum);
         let buf: Vec<f32> = vec![0.0; tapnum];
         let buf = VecDeque::from(buf);
         Self { tapnum, buf }
     }
-}
 
-impl Appliable for Delay {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        if self.tapnum == 0 {
+            return samples; // do nothing
+        }
         let mut y = Vec::with_capacity(samples.len());
         for x in samples.iter() {
             y.push(self.buf.pop_back().unwrap()); // already initialized in constructor
             self.buf.push_front(*x);
         }
         y
+    }
+}
+
+impl Appliable for Delay {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        self.apply(samples)
     }
 }
 
@@ -221,21 +236,18 @@ fn test_delay() {
 
 #[test]
 #[allow(clippy::float_cmp)]
-fn test_delay_0() {
-    let want: Vec<f32> = vec![
-        0.0, 0.01, 0.02, 0.03,
-        // 0.04, // Note: the rest is still in the buffer
-    ];
-    // case: tapnum = 0
+fn test_delay_zero() {
+    let want: Vec<f32> = vec![0.01, 0.02, 0.03, 0.04];
     let mut buf = vec![0.01, 0.02, 0.03, 0.04];
     buf = Delay::with_tapnum(0).apply(buf);
     let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
     assert!(ok);
-    // case: too large tapnum
-    let mut buf = vec![0.01, 0.02, 0.03, 0.04];
-    buf = Delay::with_tapnum(1 << 31).apply(buf);
-    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+}
+
+#[test]
+#[should_panic]
+fn test_delay_too_long() {
+    Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(vec![0.01, 0.02, 0.03, 0.04]);
 }
 
 #[test]
@@ -264,13 +276,16 @@ impl Volume {
         log::debug!("volume curve={:?} vol={}", curve, vol);
         Self { curve, vol }
     }
+    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        match self.curve {
+            VolumeCurve::Linear => samples.iter().map(|x| *x * self.vol as f32).collect(),
+        }
+    }
 }
 
 impl Appliable for Volume {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        match self.curve {
-            VolumeCurve::Linear => samples.iter().map(|x| *x * self.vol as f32).collect(),
-        }
+        self.apply(samples)
     }
 }
 
@@ -450,10 +465,8 @@ impl BiquadFilter {
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
     }
-}
 
-impl Appliable for BiquadFilter {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+    pub fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
         for x in samples.iter() {
             let x = *x as f64;
@@ -470,6 +483,12 @@ impl Appliable for BiquadFilter {
             buf.push(y as f32);
         }
         buf
+    }
+}
+
+impl Appliable for BiquadFilter {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        self.apply(samples)
     }
 }
 
