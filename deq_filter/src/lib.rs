@@ -544,6 +544,9 @@ impl Convolver {
 
 impl Filter for Convolver {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        if self.ir.is_empty() {
+            return samples; // do nothing
+        }
         let mut vy: Vec<f32> = Vec::with_capacity(samples.len());
         // convolve([1, 3, 7], [1, -10, 100]) -> [1, -7, 77]
         // initial      [0 0 0]1 3 7
@@ -588,6 +591,15 @@ fn test_convolve() {
             .count()
             == 0
     );
+}
+
+#[test]
+fn test_convolve_empty() {
+    let ir = Vec::new();
+    let buf = vec![0.01, 0.03, 0.07];
+    let want = vec![0.01, 0.03, 0.07];
+    let buf = Convolver::new(&ir).apply(buf);
+    assert!(format!("{:?}", want) == format!("{:?}", buf));
 }
 
 pub fn dump_coeffs(mut v: Vec<BiquadFilter>) -> String {
