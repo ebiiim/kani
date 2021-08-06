@@ -1,5 +1,5 @@
 [workspace]
 members = [
   "deq",
-  "filter",
+  "deq_filter",
 ]

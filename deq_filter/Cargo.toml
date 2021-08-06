@@ -1,5 +1,5 @@
 [package]
-name = "filter"
+name = "deq_filter"
 version = "0.1.0-dev"
 authors = ["Shunsuke Ise <ise@ebiiim.com>"]
 edition = "2018"

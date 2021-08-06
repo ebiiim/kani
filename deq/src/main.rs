@@ -2,7 +2,7 @@ use portaudio as pa;
 use std::env;
 use std::process;
 
-extern crate filter;
+extern crate deq_filter;
 
 mod cli;
 mod err;

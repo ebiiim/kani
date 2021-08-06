@@ -5,8 +5,8 @@ authors = ["Shunsuke Ise <ise@ebiiim.com>"]
 edition = "2018"
 repository = "https://github.com/ebiiim/deq"
 
-[dependencies.filter]
-path = "../filter"
+[dependencies.deq_filter]
+path = "../deq_filter"
 version = "0.1.0-dev"
 
 [dependencies]
