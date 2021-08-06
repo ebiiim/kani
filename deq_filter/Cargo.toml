@@ -6,4 +6,4 @@ edition = "2018"
 repository = "https://github.com/ebiiim/deq"
 
 [dependencies]
-log = { version = "0.4", features = ["release_max_level_warn"] }
+log = { version = "0.4" }
