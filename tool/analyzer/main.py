@@ -11,7 +11,7 @@ from scipy import signal
 from functools import reduce
 
 
-def _plot(hz, gain, phase=None, title="no title", show=True, save=True, ext="png"):
+def _plot(hz, gain, phase, title="no title", show=True, save=True, ext="png", no_phase=False):
     fig = plt.figure(figsize=(12, 5))
 
     ax1 = fig.add_subplot(111)
@@ -41,7 +41,7 @@ def _plot(hz, gain, phase=None, title="no title", show=True, save=True, ext="png
                          "20k"])
     ax1.grid()
 
-    if phase is not None:
+    if not no_phase:
         ax2 = ax1.twinx()
         ax2.set_ylabel("Phase (deg.)")
         ax2.set_ylim(-180, 180)
@@ -55,7 +55,7 @@ def _plot(hz, gain, phase=None, title="no title", show=True, save=True, ext="png
         # -----
 
     # plot
-    if phase is not None:
+    if not no_phase:
         ax2.plot(hz, phase, "cyan")
     ax1.plot(hz, gain, "blue")
 
@@ -66,24 +66,24 @@ def _plot(hz, gain, phase=None, title="no title", show=True, save=True, ext="png
         plt.show()
 
 
-def plot_from_coeff(b, a, n, title="no title", fs=48000.0, show=True, save=True, ext="png"):
+def plot_from_coeff(b, a, n, title="no title", fs=48000.0, show=True, save=True, ext="png", no_phase=False):
     w, h = signal.freqz(b, a, worN=n)
     mag = np.abs(h)
     gain = 20*np.log10(mag/1.0)
     phase = np.angle(h)
     phase_deg = phase*180/math.pi
     hz = fs/2 * w/math.pi  # [0..fs/2]
-    _plot(hz, gain, phase_deg, title, show, save, ext)
+    _plot(hz, gain, phase_deg, title, show, save, ext, no_phase)
 
 
-def plot_from_ir(ir, n, title="no title", fs=48000.0, show=True, save=True, ext="png"):
+def plot_from_ir(ir, n, title="no title", fs=48000.0, show=True, save=True, ext="png", no_phase=False):
     h = np.fft.fft(ir, n)
     mag = np.abs(h)
     gain = 20*np.log10(mag/1.0)
     phase = np.angle(h)
     phase_deg = phase*180/math.pi
     hz = np.linspace(0, fs, n, endpoint=False)  # [0..fs]
-    _plot(hz, gain, phase_deg, title, show, save, ext)
+    _plot(hz, gain, phase_deg, title, show, save, ext, no_phase)
 
 
 class ResultType(Enum):
@@ -104,6 +104,9 @@ def parse_input(s: str) -> Tuple[ResultType, Optional[List[list]], Optional[List
     buf = s.splitlines()
     if len(buf) == 0:
         return ResultType.ERROR, None, None, None
+
+    # remove empty lines
+    buf = [l for l in buf if l != ""]
 
     # determine COEFF or IR
     rt = ResultType.COEFF
@@ -154,8 +157,10 @@ def parse_input(s: str) -> Tuple[ResultType, Optional[List[list]], Optional[List
 def convolve_coeffs(v: List[list]) -> list:
     return reduce(lambda x, y: signal.convolve(x, y), v, [1.0])
 
+
 def nextpow2(n):
     return 2**int(np.ceil(np.log2(n)))
+
 
 def main():
     import argparse
@@ -172,6 +177,8 @@ def main():
                         action="store_false", help="no show plot")
     parser.add_argument("-s", dest="save",
                         action="store_true", help="save PNG")
+    parser.add_argument("--no-phase", dest="no_phase",
+                        action="store_true", help="no plot phase")
     # parser.add_argument("--dump", dest="dump", action="store_true", help="dump PNG to stdout")
 
     args = parser.parse_args()
@@ -205,10 +212,10 @@ def main():
         b = convolve_coeffs(vb)
         a = convolve_coeffs(va)
         plot_from_coeff(b, a, n=nextpow2(args.rate/20), title=title, fs=args.rate,
-                        show=args.show, save=args.save)
+                        show=args.show, save=args.save, no_phase=args.no_phase)
     elif rt == ResultType.IR:
         plot_from_ir(ir, n=nextpow2(len(ir)), title=title, fs=args.rate,
-                     show=args.show, save=args.save)
+                     show=args.show, save=args.save, no_phase=args.no_phase)
     else:
         print("unexpected error", file=sys.stderr)
         sys.exit(1)
