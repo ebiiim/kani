@@ -519,6 +519,77 @@ impl Filter for BiquadFilter {
     }
 }
 
+#[derive(Debug)]
+pub struct Convolver {
+    /// impulse response
+    ir: Vec<f32>,
+    /// ring buffer
+    buf: VecDeque<f32>,
+}
+
+impl Convolver {
+    pub fn new(ir: &[f32]) -> Self {
+        let buf = vec![0.0; ir.len()];
+        let mut ir = ir.to_vec();
+        ir.reverse();
+        Self {
+            ir,
+            buf: VecDeque::from(buf),
+        }
+    }
+    pub fn newb(ir: &[f32]) -> Box<Self> {
+        Box::new(Self::new(ir))
+    }
+}
+
+impl Filter for Convolver {
+    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+        let mut vy: Vec<f32> = Vec::with_capacity(samples.len());
+        // convolve([1, 3, 7], [1, -10, 100]) -> [1, -7, 77]
+        // initial      [0 0 0]1 3 7
+        // [1]       <-  0[0 0 1]3 7
+        // [1 -7]    <-  0 0[0 1 3]7
+        // [1 -7 77] <-  0 0 0[1 3 7]
+        for sx in samples.into_iter() {
+            self.buf.pop_front().unwrap();
+            self.buf.push_back(sx);
+            let mut y = 0.0f32;
+            for (x, k) in self.buf.iter().zip(self.ir.iter()) {
+                y += x * k;
+            }
+            vy.push(y);
+        }
+        vy
+    }
+}
+
+#[test]
+fn test_convolve() {
+    let ir = vec![0.5, -0.3, 0.7];
+    let buf1 = vec![0.01, 0.03, 0.07];
+    let buf2 = vec![0.11, 0.13, 0.17];
+    let want1 = vec![0.005, 0.012, 0.033];
+    let want2 = vec![0.055, 0.081, 0.123];
+    let mut f = Convolver::new(&ir);
+    let buf1 = f.apply(buf1);
+    let buf2 = f.apply(buf2);
+    let em = 0.00000001; // enough precision?
+    assert!(
+        buf1.iter()
+            .zip(&want1)
+            .filter(|&(a, b)| (a - b).abs() > em)
+            .count()
+            == 0
+    );
+    assert!(
+        buf2.iter()
+            .zip(&want2)
+            .filter(|&(a, b)| (a - b).abs() > em)
+            .count()
+            == 0
+    );
+}
+
 pub fn dump_coeffs(mut v: Vec<BiquadFilter>) -> String {
     v.iter_mut()
         .fold(String::new(), |acc, x| format!("{}{}", acc, x.coeff.dump()))
