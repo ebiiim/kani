@@ -648,3 +648,43 @@ pub fn dump_ir(mut v: Vec<Box<dyn Filter>>, n: usize) -> String {
         .fold(String::new(), |acc, &x| acc + &x.to_string() + "\n")
         .to_string()
 }
+
+pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
+    let mut v = Vec::new();
+    for (idx, l) in s.lines().enumerate() {
+        match l.parse::<f32>() {
+            Ok(a) => {
+                if v.len() < max_n {
+                    v.push(a);
+                }
+            }
+            Err(e) => {
+                log::info!("load_ir ignored line={} value={} err={:?}", idx + 1, l, e);
+            }
+        }
+    }
+    v
+}
+
+#[test]
+fn test_load_ir() {
+    let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
+    let want: Vec<f32> = vec![1.0, 0.15, 0.39, -0.34916812, 0.10];
+    let got = load_ir(s, 4096);
+    assert!(format!("{:?}", got) == format!("{:?}", want));
+
+    let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
+    let want: Vec<f32> = vec![1.0, 0.15];
+    let got = load_ir(s, 2);
+    assert!(format!("{:?}", got) == format!("{:?}", want));
+
+    let s = "1";
+    let want: Vec<f32> = vec![1.0];
+    let got = load_ir(s, 4096);
+    assert!(format!("{:?}", got) == format!("{:?}", want));
+
+    let s = "";
+    let want: Vec<f32> = Vec::new();
+    let got = load_ir(s, 4096);
+    assert!(format!("{:?}", got) == format!("{:?}", want));
+}
