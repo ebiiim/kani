@@ -1,5 +1,5 @@
 use deq_filter as f;
-use deq_filter::Appliable;
+use deq_filter::Filter;
 use deq_filter::{BQFParam, BQFType, BiquadFilter};
 
 fn test_run_dump_coeffs() {
@@ -15,7 +15,7 @@ fn test_run_dump_coeffs() {
 fn test_run_dump_ir() {
     let fs = 48000.0;
     let n = f::nextpow2(fs / 20.0);
-    let v: Vec<Box<dyn Appliable>> = vec![
+    let v: Vec<Box<dyn Filter>> = vec![
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 440.0, -6.0, BQFParam::Q(2.828)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 440.0, -6.0, BQFParam::Q(2.828)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),

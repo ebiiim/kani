@@ -59,14 +59,14 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
 
     // init filters
     let fs = reader.spec().sample_rate as f32;
-    let mut lfs: Vec<Box<dyn f::Appliable>> = vec![
+    let mut lfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         Volume::newb(VolumeCurve::Linear, 0.2),
         Delay::newb(200, fs as usize),
     ];
-    let mut rfs: Vec<Box<dyn f::Appliable>> = vec![
+    let mut rfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
@@ -177,14 +177,14 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
 
     // init filters
     let fs = rate as f32;
-    let mut lfs: Vec<Box<dyn f::Appliable>> = vec![
+    let mut lfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         Volume::newb(VolumeCurve::Linear, 0.2),
         Delay::newb(200, fs as usize),
     ];
-    let mut rfs: Vec<Box<dyn f::Appliable>> = vec![
+    let mut rfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),

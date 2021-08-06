@@ -152,7 +152,7 @@ fn test_to_interleaved_invalid_vec() {
     to_interleaved(buf_l, buf_r);
 }
 
-pub trait Appliable {
+pub trait Filter {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
 }
 
@@ -197,7 +197,7 @@ impl Delay {
     }
 }
 
-impl Appliable for Delay {
+impl Filter for Delay {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         if self.tapnum == 0 {
             return samples; // do nothing
@@ -282,7 +282,7 @@ impl Volume {
     }
 }
 
-impl Appliable for Volume {
+impl Filter for Volume {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         samples.iter().map(|x| *x * self.ratio as f32).collect()
     }
@@ -495,7 +495,7 @@ impl BiquadFilter {
     }
 }
 
-impl Appliable for BiquadFilter {
+impl Filter for BiquadFilter {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
         for x in samples.iter() {
@@ -531,7 +531,7 @@ pub fn generate_impulse(n: usize) -> Vec<f32> {
     buf
 }
 
-pub fn dump_ir(mut v: Vec<Box<dyn Appliable>>, n: usize) -> String {
+pub fn dump_ir(mut v: Vec<Box<dyn Filter>>, n: usize) -> String {
     let buf = generate_impulse(n);
     let buf = v.iter_mut().fold(buf, |x, f| f.apply(x));
     buf.iter()
