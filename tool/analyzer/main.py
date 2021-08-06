@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
+from enum import Enum
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import math
 import matplotlib
 import matplotlib.pyplot as plt
@@ -85,39 +86,34 @@ def plot_from_ir(ir, n, title="no title", fs=48000.0, show=True, save=True, ext=
     _plot(hz, gain, phase_deg, title, show, save, ext)
 
 
-# returns (result_type, [b], [a], ir)
-#
-# result_type
-#   0: error
-#   1: coefficients
-#   2: impulse response
-#
-# [b]
-#   [[b0, b1, b2, ...], ...]
-#
-# [a]
-#   [[a0, a1, a2, ...], ...]
-#
-# ir
-#   [t0, t1, t2, ...]
-def parse_input(file: str) -> Tuple[int, List[list], List[list], list]:
-    buf = []
-    if file == "":
-        buf = sys.stdin.read().splitlines()
-    else:
-        with open(file) as f:
-            buf = f.read().splitlines()
-    if len(buf) == 0:
-        return 0, [[]], [[]], []
+class ResultType(Enum):
+    ERROR = 0
+    COEFF = 1
+    IR = 2
 
-    result_type = 1
+
+# Returns (rt, b, a, ir).
+#
+# Coefficients:
+#   rt=ResultType.COEFF, b=[[b0, b1, b2, ...], ...], a=[[a0, a1, a2, ...], ...], ir=None
+# Impulse response:
+#   rt=ResultType.IR, b=None, a=None, ir=[t0, t1, t2, ...]
+# Error:
+#   rt=ResultType.ERROR, b=None, a=None, ir=None
+def parse_input(s: str) -> Tuple[ResultType, Optional[List[list]], Optional[List[list]], Optional[list]]:
+    buf = s.splitlines()
+    if len(buf) == 0:
+        return ResultType.ERROR, None, None, None
+
+    # determine COEFF or IR
+    rt = ResultType.COEFF
     vb, va = [], []
     ir = []
     if buf[0] not in ["b", "a"]:
-        result_type = 2
+        rt = ResultType.IR
 
-    # Coeff.
-    if result_type == 1:
+    # parse COEFF
+    if rt == ResultType.COEFF:
         tmp = []
         is_a = False
         for x in buf:
@@ -137,27 +133,29 @@ def parse_input(file: str) -> Tuple[int, List[list], List[list], list]:
                 tmp.append(float(x))
             except Exception as e:
                 print(f"{e}", file=sys.stderr)
-                return 0, [[]], [[]], []
+                return ResultType.ERROR, [[]], [[]], []
         if is_a:
             va.append(tmp)
         else:
             vb.append(tmp)
 
-    # IR
-    if result_type == 2:
+    # parse IR
+    if rt == ResultType.IR:
         try:
             ir = [float(x) for x in buf]
         except Exception as e:
             print(f"{e}", file=sys.stderr)
-            return 0, [[]], [[]], []
+            return ResultType.ERROR, [[]], [[]], []
 
-    return result_type, vb, va, ir
+    return rt, vb, va, ir
 
 
 # requires len(v) != 0
 def convolve_coeffs(v: List[list]) -> list:
     return reduce(lambda x, y: signal.convolve(x, y), v, [1.0])
 
+def nextpow2(n):
+    return 2**int(np.ceil(np.log2(n)))
 
 def main():
     import argparse
@@ -167,7 +165,7 @@ def main():
     parser.add_argument("-i", dest="file", type=str, nargs=1,
                         default="", help="input file (default: use stdin)")
     parser.add_argument("-t", dest="title",  type=str, nargs=1,
-                        default="", help="title (default: {yyyyMMddHHmmss}-{Coeff|IR})")
+                        default="", help="title (default: {yyyyMMdd-HHmmss}-{Coeff|IR})")
     parser.add_argument("-r", dest="rate", type=float, nargs=1,
                         default=48000.0, help="sampling rate (default: 48000)")
     parser.add_argument("-n", dest="show",
@@ -179,33 +177,41 @@ def main():
     args = parser.parse_args()
     # print(args, file=sys.stderr)
 
-    is_coeff = False
-    file = ""
-    if len(args.file) != 0:
-        file = args.file[0]
-    result_type, vb, va, ir = parse_input(file)
-    if result_type == 0:
+    # get input; ""->stdout, else->file
+    data = ""
+    if len(args.file) == 0:  # stdin
+        data = sys.stdin.read()
+    else:                    # file
+        with open(args.file[0]) as f:
+            data = f.read()
+
+    # parse data
+    rt, vb, va, ir = parse_input(data)
+    if rt == ResultType.ERROR:
         print("wrong format", file=sys.stderr)
         sys.exit(1)
-    if result_type == 1:
-        is_coeff = True
+
+    # get title
     title = args.title
-    if title == "":
-        title = dt.now().strftime("%Y%m%d%H%M%S")
-        if is_coeff:
+    if title == "":  # generate default title
+        title = dt.now().strftime("%Y%m%d-%H%M%S")
+        if rt == ResultType.COEFF:
             title += " (Coeff.)"
         else:
             title += " (IR)"
 
-    if is_coeff:
+    # plot
+    if rt == ResultType.COEFF:
         b = convolve_coeffs(vb)
         a = convolve_coeffs(va)
-        plot_from_coeff(b, a, n=2400, title=title, fs=args.rate,
+        plot_from_coeff(b, a, n=nextpow2(args.rate/20), title=title, fs=args.rate,
                         show=args.show, save=args.save)
-    else:
-        plot_from_ir(ir, n=2400, title=title, fs=args.rate,
+    elif rt == ResultType.IR:
+        plot_from_ir(ir, n=nextpow2(len(ir)), title=title, fs=args.rate,
                      show=args.show, save=args.save)
-
+    else:
+        print("unexpected error", file=sys.stderr)
+        sys.exit(1)
     sys.exit(0)
 
 
