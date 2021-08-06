@@ -1,5 +1,6 @@
 use crate::err::DeqError;
 use deq_filter as f;
+use deq_filter::Convolver;
 use deq_filter::Delay;
 use deq_filter::{BQFParam, BQFType, BiquadFilter};
 use deq_filter::{Volume, VolumeCurve};
@@ -172,26 +173,29 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
     }
     let settings = pa::DuplexStreamSettings::new(i_params, o_params, rate, frame);
 
-    // latency channel
-    // exit if received u128::MAX
-    let (sender, receiver) = ::std::sync::mpsc::channel();
-
     // init filters
     let fs = rate as f32;
+    let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), 1024 * 2);
     let mut lfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Linear, 0.2),
-        Delay::newb(200, fs as usize),
+        // Convolver::newb(&ir),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
     ];
     let mut rfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Linear, 0.2),
-        Delay::newb(200, fs as usize),
+        // Convolver::newb(&ir),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
     ];
+
+    // latency channel
+    // exit if received u128::MAX
+    let (sender, receiver) = ::std::sync::mpsc::channel();
 
     // setup callback function
     let callback = move |pa::DuplexStreamCallbackArgs {

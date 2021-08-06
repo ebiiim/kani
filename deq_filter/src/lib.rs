@@ -649,6 +649,9 @@ pub fn dump_ir(mut v: Vec<Box<dyn Filter>>, n: usize) -> String {
         .to_string()
 }
 
+// Tested in Core i7-4790:
+//   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
+//   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
 pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
     let mut v = Vec::new();
     for (idx, l) in s.lines().enumerate() {
