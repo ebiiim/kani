@@ -2,10 +2,11 @@ use crate::err::DeqError;
 use deq_filter as f;
 use deq_filter::Convolver;
 use deq_filter::Delay;
+use deq_filter::Filter;
 use deq_filter::{BQFParam, BQFType, BiquadFilter};
 use deq_filter::{Volume, VolumeCurve};
 use portaudio as pa;
-use std::time;
+use std::{thread, time};
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
     log::trace!("get devices");
@@ -175,7 +176,8 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
 
     // init filters
     let fs = rate as f32;
-    let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), 1024 * 2);
+    const CONV_N: usize = 1024 * 2;
+    let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), CONV_N);
     let mut lfs: Vec<Box<dyn f::Filter>> = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
@@ -193,6 +195,46 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
         // Delay::newb(200, fs as usize),
     ];
 
+    // // use thread to process signals (1/3)
+    // let (send_lx, recv_lx) = ::std::sync::mpsc::channel();
+    // let (send_rx, recv_rx) = ::std::sync::mpsc::channel();
+    // let (send_ly, recv_ly) = ::std::sync::mpsc::channel();
+    // let (send_ry, recv_ry) = ::std::sync::mpsc::channel();
+    // let hdl_l = thread::spawn(move || {
+    //     let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), CONV_N);
+    //     let mut lfs: Vec<Box<dyn f::Filter>> = vec![
+    //         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+    //         // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+    //         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+    //         Convolver::newb(&ir),
+    //         Volume::newb(VolumeCurve::Gain, -12.0),
+    //         // Delay::newb(200, fs as usize),
+    //     ];
+    //     // TODO: close when stop
+    //     loop {
+    //         let l = recv_lx.recv().unwrap();
+    //         let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
+    //         send_ly.send(l).ok();
+    //     }
+    // });
+    // let hdl_r = thread::spawn(move || {
+    //     let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), CONV_N);
+    //     let mut rfs: Vec<Box<dyn f::Filter>> = vec![
+    //         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+    //         // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+    //         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+    //         Convolver::newb(&ir),
+    //         Volume::newb(VolumeCurve::Gain, -12.0),
+    //         // Delay::newb(200, fs as usize),
+    //     ];
+    //     // TODO: close when stop
+    //     loop {
+    //         let r = recv_rx.recv().unwrap();
+    //         let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
+    //         send_ry.send(r).ok();
+    //     }
+    // });
+
     // latency channel
     // exit if received u128::MAX
     let (sender, receiver) = ::std::sync::mpsc::channel();
@@ -206,8 +248,16 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
         let start = time::Instant::now();
         // --- measure latency ---
         let (l, r) = f::from_interleaved(in_buffer.to_vec());
+
+        // // use thread to process signals (2/3)
+        // send_lx.send(l).ok();
+        // send_rx.send(r).ok();
+        // let l = recv_ly.recv().unwrap();
+        // let r = recv_ry.recv().unwrap();
+
         let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
         let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
+
         let buf = f::to_interleaved(l, r);
         for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.into_iter()) {
             *o_sample = i_sample;
@@ -262,6 +312,11 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
             break;
         }
     }
+
+    // // use thread to process signals (3/3)
+    // hdl_l.join().unwrap();
+    // hdl_r.join().unwrap();
+
     if let Err(e) = stream.stop() {
         log::warn!("could not stop playback stream err={}", e);
     }
