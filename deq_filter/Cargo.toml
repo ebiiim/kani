@@ -3,7 +3,9 @@ name = "deq_filter"
 version = "0.1.0-dev"
 authors = ["Shunsuke Ise <ise@ebiiim.com>"]
 edition = "2018"
+description = "Filters for DEQ"
 repository = "https://github.com/ebiiim/deq"
+license = "MIT"
 
 [dependencies]
 log = { version = "0.4" }
