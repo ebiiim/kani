@@ -204,8 +204,8 @@ impl Filter for Delay {
         }
         let mut y = Vec::with_capacity(samples.len());
         for x in samples.into_iter() {
-            y.push(self.buf.pop_back().unwrap()); // already initialized in constructor
-            self.buf.push_front(x);
+            y.push(self.buf.pop_front().unwrap()); // already initialized in constructor
+            self.buf.push_back(x);
         }
         y
     }
