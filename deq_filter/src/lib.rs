@@ -599,10 +599,34 @@ pub fn nextpow2(n: f32) -> usize {
     2.0f32.powf(n.log2().ceil()) as usize
 }
 
+#[test]
+fn test_nextpow2() {
+    assert!(nextpow2(1023.1f32) == 1024);
+    assert!(nextpow2(1024.1f32) == 2048);
+}
+
 pub fn generate_impulse(n: usize) -> Vec<f32> {
     let mut buf: Vec<f32> = vec![0.0; n];
     buf[0] = 1.0;
     buf
+}
+
+#[test]
+fn test_generate_impulse() {
+    assert!(
+        format!("{:?}", generate_impulse(6)) == format!("{:?}", vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    );
+}
+
+pub fn generate_inverse(a: &[f32]) -> Vec<f32> {
+    a.iter().map(|x| *x * -1.0).collect()
+}
+
+#[test]
+fn test_generate_inverse() {
+    let want: Vec<f32> = vec![-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
+    let got = generate_inverse(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+    assert!(format!("{:?}", got) == format!("{:?}", want));
 }
 
 pub fn dump_ir(mut v: Vec<Box<dyn Filter>>, n: usize) -> String {
