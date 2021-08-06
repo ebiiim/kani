@@ -7,9 +7,8 @@ use std::process;
 
 fn print_devices(pa: &pa::PortAudio) -> Result<(), DeqError> {
     let device_names = pautil::get_device_names(pa)?;
-    device_names.iter().all(|(idx, name)| {
+    device_names.iter().for_each(|(idx, name)| {
         println!("{}\t{}", idx, name);
-        true
     });
     Ok(())
 }
@@ -18,6 +17,21 @@ fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), DeqError> {
     let devinfo = pautil::get_device_info(pa, idx)?;
     println!("{:#?}", devinfo);
     Ok(())
+}
+
+fn get_default_device(pa: &pa::PortAudio) -> Result<usize, DeqError> {
+    let mut dev = usize::MAX;
+    let device_names = pautil::get_device_names(pa)?;
+    device_names.iter().for_each(|(idx, name)| {
+        if name == "default" {
+            dev = *idx;
+        }
+    });
+    if dev == usize::MAX {
+        Err(DeqError::Device)
+    } else {
+        Ok(dev)
+    }
 }
 
 fn read_str(s: &str) -> Result<String, DeqError> {
@@ -55,7 +69,7 @@ pub fn start(pa: &pa::PortAudio) {
     term_left_top();
 
     loop {
-        let cmd = read_int("[1]devices [2]detail [3]input [4]output [8]play wav [9]play [0]quit >");
+        let cmd = read_int("[1]all devices [2]show details\n[3]input device [4]output device [5]use defaults\n[8]play wav [9]play\n[0]quit\n>");
         match cmd {
             Err(_) => {
                 continue;
@@ -93,6 +107,13 @@ pub fn start(pa: &pa::PortAudio) {
                         } else {
                             log::error!("could not find device id={}", n);
                         }
+                    }
+                } else if cmd == 5 {
+                    if let Ok(dev) = get_default_device(pa) {
+                        input_dev = dev;
+                        output_dev = dev;
+                    } else {
+                        log::error!("could not find default device");
                     }
                 } else if cmd == 8 {
                     if output_dev == no_dev {
