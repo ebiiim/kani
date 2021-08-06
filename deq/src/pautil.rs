@@ -79,7 +79,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
     let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
     let buf = f::to_interleaved(l, r);
-    let mut buf = buf.iter();
+    let mut buf = buf.into_iter();
 
     // pa stream
     let ch = 2;
@@ -125,7 +125,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
             #[allow(clippy::needless_range_loop)]
             for i in 0..num_samples {
                 let sample = match buf.next() {
-                    Some(s) => *s,
+                    Some(s) => s,
                     None => {
                         if !is_finished {
                             log::debug!("wav finished");
@@ -204,8 +204,8 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
         let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
         let buf = f::to_interleaved(l, r);
 
-        for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.iter()) {
-            *o_sample = *i_sample;
+        for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.into_iter()) {
+            *o_sample = i_sample;
         }
 
         sender.send(count).ok();

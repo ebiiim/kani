@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 
+// TODO: consider in-place updates
+
 /// [-32768, 32767] -> [-1.0, 1.0]
 pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
-    a.iter()
+    a.into_iter()
         .map(|x| {
-            let x = *x;
             if x < 0 {
                 x as f32 / 0x8000 as f32
             } else {
@@ -16,9 +17,8 @@ pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
 
 /// [-1.0, 1.0] -> [-32768, 32767]
 pub fn f32_to_i16(a: Vec<f32>) -> Vec<i16> {
-    a.iter()
+    a.into_iter()
         .map(|x| {
-            let x = *x;
             if x < 0.0 {
                 (x * 0x8000 as f32) as i16
             } else {
@@ -90,11 +90,11 @@ fn test_f32_to_i16() {
 pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
     let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
     let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
-    for (i, s) in a.iter().enumerate() {
+    for (i, s) in a.into_iter().enumerate() {
         if i % 2 == 0 {
-            l.push(*s);
+            l.push(s);
         } else {
-            r.push(*s);
+            r.push(s);
         }
     }
     (l, r)
@@ -114,9 +114,9 @@ pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
         )
     }
     let mut a: Vec<f32> = Vec::with_capacity(l.len() * 2);
-    for (lv, rv) in l.iter().zip(&r) {
-        a.push(*lv);
-        a.push(*rv);
+    for (lv, rv) in l.into_iter().zip(r) {
+        a.push(lv);
+        a.push(rv);
     }
     a
 }
@@ -203,9 +203,9 @@ impl Filter for Delay {
             return samples; // do nothing
         }
         let mut y = Vec::with_capacity(samples.len());
-        for x in samples.iter() {
+        for x in samples.into_iter() {
             y.push(self.buf.pop_back().unwrap()); // already initialized in constructor
-            self.buf.push_front(*x);
+            self.buf.push_front(x);
         }
         y
     }
@@ -248,11 +248,15 @@ fn test_delay_too_long() {
 #[test]
 #[ignore]
 fn check_delay_mem() {
-    // this test needs 3GiB RAM (1GiB for x, Delay.buf, y, respectively)
+    // this test needs more than 4GiB RAM (1GiB for x, Delay.buf, y, respectively, and 1GiB for somewhere else ?_?)
     // `cargo test -- --ignored` to run
     let tapsize = 1 << 30 >> 2;
     let x = vec![0.123; tapsize];
     let _y = Delay::with_tapnum(tapsize).apply(x);
+    // 4GiB -> 1GiB; only y remains
+    use std::{thread, time};
+    let t = time::Duration::from_millis(5000);
+    thread::sleep(t);
 }
 
 #[derive(Debug)]
@@ -284,7 +288,7 @@ impl Volume {
 
 impl Filter for Volume {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        samples.iter().map(|x| *x * self.ratio as f32).collect()
+        samples.into_iter().map(|x| x * self.ratio as f32).collect()
     }
 }
 
@@ -498,8 +502,7 @@ impl BiquadFilter {
 impl Filter for BiquadFilter {
     fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
-        for x in samples.iter() {
-            let x = *x as f32;
+        for x in samples.into_iter() {
             let y = self.coeff.b0_div_a0 * x
                 + self.coeff.b1_div_a0 * self.buf_x[0]
                 + self.coeff.b2_div_a0 * self.buf_x[1]
@@ -510,7 +513,7 @@ impl Filter for BiquadFilter {
             self.buf_x[0] = x;
             self.buf_y[1] = self.buf_y[0];
             self.buf_y[0] = y;
-            buf.push(y as f32);
+            buf.push(y);
         }
         buf
     }
