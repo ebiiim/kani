@@ -4,6 +4,7 @@ use deq_filter::Delay;
 use deq_filter::{BQFParam, BQFType, BiquadFilter};
 use deq_filter::{Volume, VolumeCurve};
 use portaudio as pa;
+use std::time;
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
     log::trace!("get devices");
@@ -171,9 +172,9 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
     }
     let settings = pa::DuplexStreamSettings::new(i_params, o_params, rate, frame);
 
-    // count total frames; exit if received -1
+    // latency channel
+    // exit if received u128::MAX
     let (sender, receiver) = ::std::sync::mpsc::channel();
-    let mut count: i64 = 0;
 
     // init filters
     let fs = rate as f32;
@@ -198,24 +199,24 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
                              out_buffer,
                              ..
                          }| {
-        // apply filters
+        let start = time::Instant::now();
+        // --- measure latency ---
         let (l, r) = f::from_interleaved(in_buffer.to_vec());
         let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
         let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
         let buf = f::to_interleaved(l, r);
-
         for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.into_iter()) {
             *o_sample = i_sample;
         }
-
-        sender.send(count).ok();
-        count += 1;
+        // -----------------------
+        let end = start.elapsed();
+        sender.send(end.as_micros()).ok();
 
         // TODO
         if true {
             pa::Continue
         } else {
-            sender.send(-1).ok();
+            sender.send(std::u128::MAX).ok();
             pa::Complete
         }
     };
@@ -233,10 +234,26 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
     }
 
     // block
+    let mut latency_avg = 0.0f64;
+    let avg_sec = 5;
+    let n = rate as u64 / frame as u64 * avg_sec;
+    let mut count: u64 = 0;
     loop {
-        let c = receiver.recv().unwrap_or(0);
-        log::trace!("frame {:?}", c);
-        if c == -1 {
+        // stats
+        let l = receiver.recv().unwrap();
+        latency_avg -= latency_avg / n as f64;
+        latency_avg += l as f64 / n as f64;
+        count += 1;
+        if count % n == 0 {
+            log::info!(
+                "filter latency ({}s avg): {:.3} ms | total frames: {}",
+                avg_sec,
+                latency_avg / 1000.0,
+                count
+            );
+        }
+        // stop?
+        if l == std::u128::MAX {
             log::debug!("stop");
             break;
         }

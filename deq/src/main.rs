@@ -11,7 +11,7 @@ mod pautil;
 fn main() {
     // init logger
     let log_levels = ["error", "warn", "info", "debug", "trace"];
-    let log_default = log_levels[1]; // default log level: warn
+    let log_default = log_levels[2]; // default log level: info
     let log_env = "RUST_LOG";
     match env::var(log_env) {
         Err(_) => env::set_var(log_env, log_default),
