@@ -565,11 +565,11 @@ impl Filter for Convolver {
 
 #[test]
 fn test_convolve() {
-    let ir = vec![0.5, -0.3, 0.7];
+    let ir = vec![0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
     let buf1 = vec![0.01, 0.03, 0.07];
     let buf2 = vec![0.11, 0.13, 0.17];
     let want1 = vec![0.005, 0.012, 0.033];
-    let want2 = vec![0.055, 0.081, 0.123];
+    let want2 = vec![0.053, 0.079, 0.115];
     let mut f = Convolver::new(&ir);
     let buf1 = f.apply(buf1);
     let buf2 = f.apply(buf2);
