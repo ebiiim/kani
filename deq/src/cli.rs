@@ -1,10 +1,9 @@
+use crate::err::DeqError;
+use crate::pautil;
 use portaudio as pa;
 use std::io::stdin;
 use std::io::{stdout, Write};
 use std::process;
-
-use crate::err::DeqError;
-use crate::pautil;
 
 fn print_devices(pa: &pa::PortAudio) -> Result<(), DeqError> {
     let device_names = pautil::get_device_names(pa)?;

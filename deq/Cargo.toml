@@ -1,0 +1,16 @@
+[package]
+name = "deq"
+version = "0.1.0-dev"
+authors = ["Shunsuke Ise <ise@ebiiim.com>"]
+edition = "2018"
+repository = "https://github.com/ebiiim/deq"
+
+[dependencies.filter]
+path = "../filter"
+version = "0.1.0-dev"
+
+[dependencies]
+portaudio = "0.7"
+log = { version = "0.4", features = ["release_max_level_warn"] }
+env_logger = "0.9"
+hound = "3.4"

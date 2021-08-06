@@ -1,9 +1,7 @@
 use crate::err::DeqError;
-use crate::filter;
-use crate::filter::Delay;
-use crate::filter::{BQFParam, BQFType, BiquadFilter};
-use crate::filter::{Volume, VolumeCurve};
-
+use filter::Delay;
+use filter::{BQFParam, BQFType, BiquadFilter};
+use filter::{Volume, VolumeCurve};
 use portaudio as pa;
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, DeqError> {
@@ -61,7 +59,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     // init filters
     let fs = reader.spec().sample_rate as f32;
     let mut lfs: Vec<Box<dyn filter::Appliable>> = vec![
-        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        filter::BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         Volume::newb(VolumeCurve::Linear, 0.2),

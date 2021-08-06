@@ -2,9 +2,10 @@ use portaudio as pa;
 use std::env;
 use std::process;
 
+extern crate filter;
+
 mod cli;
 mod err;
-mod filter;
 mod pautil;
 
 fn main() {
