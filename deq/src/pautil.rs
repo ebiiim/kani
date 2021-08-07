@@ -76,11 +76,20 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         Volume::newb(VolumeCurve::Linear, 0.2),
         Delay::newb(200, fs as usize),
     ];
+
+    // // attempted to update in-place (1/2)
+    // let mut rfs2: Vec<Box<dyn f::Filter>> = vec![Volume::newb(VolumeCurve::Linear, 1.0)];
+
     // apply filters
     let buf = f::i16_to_f32(&buf);
     let (l, r) = f::from_interleaved(&buf);
     let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
+
+    // // attempted to update in-place (2/2)
+    // let mut r = r;
+    // rfs2.iter_mut().for_each(|f| f.apply2(&mut r));
+
     let buf = f::to_interleaved(&l, &r);
     let mut buf = buf.into_iter();
 

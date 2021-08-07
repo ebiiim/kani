@@ -9,3 +9,6 @@ license = "MIT"
 
 [dependencies]
 log = { version = "0.4" }
+
+[[example]]
+name = "bench-return-vs-inplace"

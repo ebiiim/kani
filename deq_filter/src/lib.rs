@@ -152,6 +152,8 @@ fn test_to_interleaved_invalid_vec() {
 
 pub trait Filter {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
+    // // in-place version
+    // fn apply2(&mut self, xs: &mut Vec<f32>);
 }
 
 #[derive(Debug)]
@@ -286,6 +288,9 @@ impl Filter for Volume {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         xs.iter().map(|x| x * self.ratio as f32).collect()
     }
+    // fn apply2(&mut self, xs: &mut Vec<f32>) {
+    //     xs.iter_mut().for_each(|x| *x *= self.ratio as f32)
+    // }
 }
 
 #[test]
