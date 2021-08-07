@@ -3,9 +3,10 @@ use std::collections::VecDeque;
 // TODO: consider in-place updates
 
 /// [-32768, 32767] -> [-1.0, 1.0]
-pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
-    a.into_iter()
+pub fn i16_to_f32(a: &[i16]) -> Vec<f32> {
+    a.iter()
         .map(|x| {
+            let x = *x;
             if x < 0 {
                 x as f32 / 0x8000 as f32
             } else {
@@ -16,9 +17,10 @@ pub fn i16_to_f32(a: Vec<i16>) -> Vec<f32> {
 }
 
 /// [-1.0, 1.0] -> [-32768, 32767]
-pub fn f32_to_i16(a: Vec<f32>) -> Vec<i16> {
-    a.into_iter()
+pub fn f32_to_i16(a: &[f32]) -> Vec<i16> {
+    a.iter()
         .map(|x| {
+            let x = *x;
             if x < 0.0 {
                 (x * 0x8000 as f32) as i16
             } else {
@@ -42,16 +44,14 @@ fn test_i16_to_f32() {
         1.0,
         -1.0,
     ];
-    let buf = vec![0, 1, 2, 3, -1, -2, -3, std::i16::MAX, std::i16::MIN];
-    let got = i16_to_f32(buf);
-    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+    let t = [0, 1, 2, 3, -1, -2, -3, std::i16::MAX, std::i16::MIN];
+    let got = i16_to_f32(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
 }
 
 #[test]
-#[allow(clippy::float_cmp)]
 fn test_f32_to_i16() {
-    let want: Vec<i16> = vec![
+    let want = [
         0,
         1,
         2,
@@ -66,7 +66,7 @@ fn test_f32_to_i16() {
         std::i16::MAX,
         std::i16::MIN,
     ];
-    let buf = vec![
+    let t = [
         0.0,
         3.051851E-5,
         6.103702E-5,
@@ -82,19 +82,18 @@ fn test_f32_to_i16() {
         123.456,
         -123.456,
     ];
-    let got = f32_to_i16(buf);
-    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+    let got = f32_to_i16(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
 }
 
-pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
+pub fn from_interleaved(a: &[f32]) -> (Vec<f32>, Vec<f32>) {
     let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
     let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
-    for (i, s) in a.into_iter().enumerate() {
+    for (i, s) in a.iter().enumerate() {
         if i % 2 == 0 {
-            l.push(s);
+            l.push(*s);
         } else {
-            r.push(s);
+            r.push(*s);
         }
     }
     (l, r)
@@ -105,18 +104,18 @@ pub fn from_interleaved(a: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
 /// # Panics
 ///
 /// Panics if `l.len()` != `r.len()`.
-pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
-    if l.len() != r.len() {
-        panic!(
-            "vectors must have same length but l={} r={}",
-            l.len(),
-            r.len()
-        )
-    }
+pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
+    assert_eq!(
+        l.len(),
+        r.len(),
+        "`l` and `r` must have same length but l={} r={}",
+        l.len(),
+        r.len()
+    );
     let mut a: Vec<f32> = Vec::with_capacity(l.len() * 2);
-    for (lv, rv) in l.into_iter().zip(r) {
-        a.push(lv);
-        a.push(rv);
+    for (lv, rv) in l.iter().zip(r) {
+        a.push(*lv);
+        a.push(*rv);
     }
     a
 }
@@ -124,36 +123,35 @@ pub fn to_interleaved(l: Vec<f32>, r: Vec<f32>) -> Vec<f32> {
 #[test]
 #[allow(clippy::float_cmp)]
 fn test_from_interleaved() {
-    let want_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
-    let want_r: Vec<f32> = vec![0.2, 0.4, 0.6, 0.8];
-    let buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-    let (got_l, got_r) = from_interleaved(buf);
-    let ok_l = got_l.iter().zip(&want_l).filter(|&(a, b)| a != b).count() == 0;
-    let ok_r = got_r.iter().zip(&want_r).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok_l && ok_r);
+    let want_l = [0.1, 0.3, 0.5, 0.7];
+    let want_r = [0.2, 0.4, 0.6, 0.8];
+    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let (got_l, got_r) = from_interleaved(&t);
+    assert!(got_l.iter().zip(&want_l).all(|(a, b)| a == b));
+    assert!(got_r.iter().zip(&want_r).all(|(a, b)| a == b));
 }
 
 #[test]
 #[allow(clippy::float_cmp)]
+
 fn test_to_interleaved() {
-    let want = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-    let buf_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
-    let buf_r: Vec<f32> = vec![0.2, 0.4, 0.6, 0.8];
-    let got = to_interleaved(buf_l, buf_r);
-    let ok = got.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+    let want = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let t_l = [0.1, 0.3, 0.5, 0.7];
+    let t_r = [0.2, 0.4, 0.6, 0.8];
+    let got = to_interleaved(&t_l, &t_r);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
 }
 
 #[test]
 #[should_panic]
 fn test_to_interleaved_invalid_vec() {
-    let buf_l: Vec<f32> = vec![0.1, 0.3, 0.5, 0.7];
-    let buf_r: Vec<f32> = vec![0.2, 0.4, 0.6];
-    to_interleaved(buf_l, buf_r);
+    let t_l = [0.1, 0.3, 0.5, 0.7];
+    let t_r = [0.2, 0.4, 0.6];
+    to_interleaved(&t_l, &t_r);
 }
 
 pub trait Filter {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32>;
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
 }
 
 #[derive(Debug)]
@@ -198,14 +196,14 @@ impl Delay {
 }
 
 impl Filter for Delay {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         if self.tapnum == 0 {
-            return samples; // do nothing
+            return xs.to_vec(); // do nothing
         }
-        let mut y = Vec::with_capacity(samples.len());
-        for x in samples.into_iter() {
+        let mut y = Vec::with_capacity(xs.len());
+        for x in xs.iter() {
             y.push(self.buf.pop_front().unwrap()); // already initialized in constructor
-            self.buf.push_back(x);
+            self.buf.push_back(*x);
         }
         y
     }
@@ -214,35 +212,33 @@ impl Filter for Delay {
 #[test]
 #[allow(clippy::float_cmp)]
 fn test_delay() {
-    let want: Vec<f32> = vec![
+    let want = [
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
         0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23,
         0.24,
         // 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, // Note: the rest is still in the buffer
     ];
-    let mut buf = vec![
+    let t = [
         0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15,
         0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.30,
     ];
-    buf = Delay::with_tapnum(6).apply(buf);
-    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+    let got = Delay::with_tapnum(6).apply(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
 }
 
 #[test]
 #[allow(clippy::float_cmp)]
 fn test_delay_zero() {
-    let want: Vec<f32> = vec![0.01, 0.02, 0.03, 0.04];
-    let mut buf = vec![0.01, 0.02, 0.03, 0.04];
-    buf = Delay::with_tapnum(0).apply(buf);
-    let ok = buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0;
-    assert!(ok);
+    let want = [0.01, 0.02, 0.03, 0.04];
+    let t = [0.01, 0.02, 0.03, 0.04];
+    let got = Delay::with_tapnum(0).apply(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
 }
 
 #[test]
 #[should_panic]
 fn test_delay_too_long() {
-    Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(vec![0.01, 0.02, 0.03, 0.04]);
+    Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(&[0.01, 0.02, 0.03, 0.04]);
 }
 
 #[test]
@@ -252,8 +248,8 @@ fn check_delay_mem() {
     // `cargo test -- --ignored` to run
     let tapsize = 1 << 30 >> 2;
     let x = vec![0.123; tapsize];
-    let _y = Delay::with_tapnum(tapsize).apply(x);
-    // 4GiB -> 1GiB; only y remains
+    let _y = Delay::with_tapnum(tapsize).apply(&x);
+
     use std::{thread, time};
     let t = time::Duration::from_millis(5000);
     thread::sleep(t);
@@ -287,31 +283,31 @@ impl Volume {
 }
 
 impl Filter for Volume {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        samples.into_iter().map(|x| x * self.ratio as f32).collect()
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        xs.iter().map(|x| x * self.ratio as f32).collect()
     }
 }
 
 #[test]
 #[allow(clippy::float_cmp)]
 fn test_volume_linear() {
-    let want: Vec<f32> = vec![0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
-    let mut buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    buf = Volume::new(VolumeCurve::Linear, 0.5).apply(buf);
-    assert!(buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0)
+    let want = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
+    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    let got = Volume::new(VolumeCurve::Linear, 0.5).apply(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b))
 }
 
 #[test]
 #[allow(clippy::float_cmp)]
 fn test_volume_gain() {
-    let mut buf = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
     let g_n6 = 0.5011872f32;
-    let want: Vec<f32> = buf.clone().iter().map(|x| x * g_n6).collect();
-    buf = Volume::new(VolumeCurve::Gain, -6.0).apply(buf);
-    assert!(buf.iter().zip(&want).filter(|&(a, b)| a != b).count() == 0)
+    let want: Vec<f32> = t.iter().map(|x| x * g_n6).collect();
+    let got = Volume::new(VolumeCurve::Gain, -6.0).apply(&t);
+    assert!(got.iter().zip(&want).all(|(a, b)| a == b))
 }
 
-// Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
+// // Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
 
 #[derive(Debug)]
 pub enum BQFType {
@@ -326,7 +322,7 @@ pub enum BQFType {
     HighShelf,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub enum BQFParam {
     // Q factor
     Q(f32),
@@ -466,7 +462,7 @@ pub struct BiquadFilter {
     rate: f32,
     /// cutoff/center freq
     f0: f32,
-    /// gain in dB (PeakingEQ | LowShelf | HighShelf)     
+    /// gain in dB (PeakingEQ | LowShelf | HighShelf)
     gain: f32,
     /// Q/Bandwidth/Slope value
     param: BQFParam,
@@ -500,9 +496,9 @@ impl BiquadFilter {
 }
 
 impl Filter for BiquadFilter {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
-        let mut buf: Vec<f32> = Vec::with_capacity(samples.len());
-        for x in samples.into_iter() {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        let mut buf: Vec<f32> = Vec::with_capacity(xs.len());
+        for x in xs.iter() {
             let y = self.coeff.b0_div_a0 * x
                 + self.coeff.b1_div_a0 * self.buf_x[0]
                 + self.coeff.b2_div_a0 * self.buf_x[1]
@@ -510,7 +506,7 @@ impl Filter for BiquadFilter {
                 - self.coeff.a2_div_a0 * self.buf_y[1];
             // delay
             self.buf_x[1] = self.buf_x[0];
-            self.buf_x[0] = x;
+            self.buf_x[0] = *x;
             self.buf_y[1] = self.buf_y[0];
             self.buf_y[0] = y;
             buf.push(y);
@@ -543,19 +539,19 @@ impl Convolver {
 }
 
 impl Filter for Convolver {
-    fn apply(&mut self, samples: Vec<f32>) -> Vec<f32> {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         if self.ir.is_empty() {
-            return samples; // do nothing
+            return xs.to_vec(); // do nothing
         }
-        let mut vy: Vec<f32> = Vec::with_capacity(samples.len());
+        let mut vy: Vec<f32> = Vec::with_capacity(xs.len());
         // convolve([1, 3, 7], [1, -10, 100]) -> [1, -7, 77]
         // initial      [0 0 0]1 3 7
         // [1]       <-  0[0 0 1]3 7
         // [1 -7]    <-  0 0[0 1 3]7
         // [1 -7 77] <-  0 0 0[1 3 7]
-        for sx in samples.into_iter() {
+        for input_x in xs.iter() {
             self.buf.pop_front().unwrap();
-            self.buf.push_back(sx);
+            self.buf.push_back(*input_x);
             let mut y = 0.0f32;
             for (x, k) in self.buf.iter().zip(self.ir.iter()) {
                 y += x * k;
@@ -568,43 +564,31 @@ impl Filter for Convolver {
 
 #[test]
 fn test_convolve() {
-    let ir = vec![0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
-    let buf1 = vec![0.01, 0.03, 0.07];
-    let buf2 = vec![0.11, 0.13, 0.17];
-    let want1 = vec![0.005, 0.012, 0.033];
-    let want2 = vec![0.053, 0.079, 0.115];
+    let ir = [0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
+    let t1 = [0.01, 0.03, 0.07];
+    let t2 = [0.11, 0.13, 0.17];
+    let want1 = [0.005, 0.012, 0.033];
+    let want2 = [0.053, 0.079, 0.115];
     let mut f = Convolver::new(&ir);
-    let buf1 = f.apply(buf1);
-    let buf2 = f.apply(buf2);
+    let got1 = f.apply(&t1);
+    let got2 = f.apply(&t2);
     let em = 0.00000001; // enough precision?
-    assert!(
-        buf1.iter()
-            .zip(&want1)
-            .filter(|&(a, b)| (a - b).abs() > em)
-            .count()
-            == 0
-    );
-    assert!(
-        buf2.iter()
-            .zip(&want2)
-            .filter(|&(a, b)| (a - b).abs() > em)
-            .count()
-            == 0
-    );
+    assert!(got1.iter().zip(&want1).all(|(a, b)| (a - b).abs() < em));
+    assert!(got2.iter().zip(&want2).all(|(a, b)| (a - b).abs() < em));
 }
 
 #[test]
 fn test_convolve_empty() {
-    let ir = Vec::new();
-    let buf = vec![0.01, 0.03, 0.07];
-    let want = vec![0.01, 0.03, 0.07];
-    let buf = Convolver::new(&ir).apply(buf);
-    assert!(format!("{:?}", want) == format!("{:?}", buf));
+    let ir = [];
+    let t = [0.01, 0.03, 0.07];
+    let want = [0.01, 0.03, 0.07];
+    let got = Convolver::new(&ir).apply(&t);
+    assert!(format!("{:?}", want) == format!("{:?}", got));
 }
 
-pub fn dump_coeffs(mut v: Vec<BiquadFilter>) -> String {
-    v.iter_mut()
-        .fold(String::new(), |acc, x| format!("{}{}", acc, x.coeff.dump()))
+pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
+    v.iter()
+        .fold(String::new(), |s, x| format!("{}{}", s, x.coeff.dump()))
 }
 
 pub fn nextpow2(n: f32) -> usize {
@@ -626,7 +610,7 @@ pub fn generate_impulse(n: usize) -> Vec<f32> {
 #[test]
 fn test_generate_impulse() {
     assert!(
-        format!("{:?}", generate_impulse(6)) == format!("{:?}", vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        format!("{:?}", generate_impulse(6)) == format!("{:?}", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     );
 }
 
@@ -636,17 +620,16 @@ pub fn generate_inverse(a: &[f32]) -> Vec<f32> {
 
 #[test]
 fn test_generate_inverse() {
-    let want: Vec<f32> = vec![-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
+    let want = [-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
     let got = generate_inverse(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
     assert!(format!("{:?}", got) == format!("{:?}", want));
 }
 
-pub fn dump_ir(mut v: Vec<Box<dyn Filter>>, n: usize) -> String {
+pub fn dump_ir(v: &mut Vec<Box<dyn Filter>>, n: usize) -> String {
     let buf = generate_impulse(n);
-    let buf = v.iter_mut().fold(buf, |x, f| f.apply(x));
+    let buf = v.iter_mut().fold(buf, |x, f| f.apply(&x));
     buf.iter()
-        .fold(String::new(), |acc, &x| acc + &x.to_string() + "\n")
-        .to_string()
+        .fold(String::new(), |s, &x| s + &x.to_string() + "\n")
 }
 
 // Tested in Core i7-4790:
@@ -672,22 +655,22 @@ pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
 #[test]
 fn test_load_ir() {
     let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
-    let want: Vec<f32> = vec![1.0, 0.15, 0.39, -0.34916812, 0.10];
+    let want = [1.0, 0.15, 0.39, -0.34916812, 0.10];
     let got = load_ir(s, 4096);
     assert!(format!("{:?}", got) == format!("{:?}", want));
 
     let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
-    let want: Vec<f32> = vec![1.0, 0.15];
+    let want = [1.0, 0.15];
     let got = load_ir(s, 2);
     assert!(format!("{:?}", got) == format!("{:?}", want));
 
     let s = "1";
-    let want: Vec<f32> = vec![1.0];
+    let want = [1.0];
     let got = load_ir(s, 4096);
     assert!(format!("{:?}", got) == format!("{:?}", want));
 
     let s = "";
-    let want: Vec<f32> = Vec::new();
+    let want: [f32; 0] = [];
     let got = load_ir(s, 4096);
     assert!(format!("{:?}", got) == format!("{:?}", want));
 }

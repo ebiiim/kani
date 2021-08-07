@@ -77,11 +77,11 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         Delay::newb(200, fs as usize),
     ];
     // apply filters
-    let buf = f::i16_to_f32(buf);
-    let (l, r) = f::from_interleaved(buf);
-    let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
-    let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
-    let buf = f::to_interleaved(l, r);
+    let buf = f::i16_to_f32(&buf);
+    let (l, r) = f::from_interleaved(&buf);
+    let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
+    let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
+    let buf = f::to_interleaved(&l, &r);
     let mut buf = buf.into_iter();
 
     // pa stream
@@ -247,7 +247,7 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
                          }| {
         let start = time::Instant::now();
         // --- measure latency ---
-        let (l, r) = f::from_interleaved(in_buffer.to_vec());
+        let (l, r) = f::from_interleaved(in_buffer);
 
         // // use thread to process signals (2/3)
         // send_lx.send(l).ok();
@@ -255,12 +255,12 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
         // let l = recv_ly.recv().unwrap();
         // let r = recv_ry.recv().unwrap();
 
-        let l = lfs.iter_mut().fold(l, |x, f| f.apply(x));
-        let r = rfs.iter_mut().fold(r, |x, f| f.apply(x));
+        let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
+        let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
 
-        let buf = f::to_interleaved(l, r);
-        for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.into_iter()) {
-            *o_sample = i_sample;
+        let buf = f::to_interleaved(&l, &r);
+        for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.iter()) {
+            *o_sample = *i_sample;
         }
         // -----------------------
         let end = start.elapsed();
