@@ -1,16 +1,13 @@
 use std::collections::VecDeque;
 
-// TODO: consider in-place updates
-
 /// [-32768, 32767] -> [-1.0, 1.0]
 pub fn i16_to_f32(a: &[i16]) -> Vec<f32> {
     a.iter()
         .map(|x| {
-            let x = *x;
-            if x < 0 {
-                x as f32 / 0x8000 as f32
+            if *x < 0 {
+                *x as f32 / 0x8000 as f32
             } else {
-                x as f32 / 0x7fff as f32
+                *x as f32 / 0x7fff as f32
             }
         })
         .collect()
@@ -20,8 +17,7 @@ pub fn i16_to_f32(a: &[i16]) -> Vec<f32> {
 pub fn f32_to_i16(a: &[f32]) -> Vec<i16> {
     a.iter()
         .map(|x| {
-            let x = *x;
-            if x < 0.0 {
+            if *x < 0.0 {
                 (x * 0x8000 as f32) as i16
             } else {
                 (x * 0x7fff as f32) as i16
@@ -30,63 +26,13 @@ pub fn f32_to_i16(a: &[f32]) -> Vec<i16> {
         .collect()
 }
 
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_i16_to_f32() {
-    let want: Vec<f32> = vec![
-        0.0,
-        3.051851E-5,
-        6.103702E-5,
-        9.155553E-5,
-        -3.0517578E-5,
-        -6.1035156E-5,
-        -9.1552734E-5,
-        1.0,
-        -1.0,
-    ];
-    let t = [0, 1, 2, 3, -1, -2, -3, std::i16::MAX, std::i16::MIN];
-    let got = i16_to_f32(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
-}
-
-#[test]
-fn test_f32_to_i16() {
-    let want = [
-        0,
-        1,
-        2,
-        3,
-        -1,
-        -2,
-        -3,
-        std::i16::MAX,
-        std::i16::MIN,
-        std::i16::MAX,
-        std::i16::MIN,
-        std::i16::MAX,
-        std::i16::MIN,
-    ];
-    let t = [
-        0.0,
-        3.051851E-5,
-        6.103702E-5,
-        9.155553E-5,
-        -3.0517578E-5,
-        -6.1035156E-5,
-        -9.1552734E-5,
-        1.0,
-        -1.0,
-        // round to [-1.0, 1.0]
-        1.0000001,
-        -1.0000001,
-        123.456,
-        -123.456,
-    ];
-    let got = f32_to_i16(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
-}
-
+/// Separates an interleaved vector.
+///
+/// # Panics
+///
+/// Panics if `a.len()` is odd.
 pub fn from_interleaved(a: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    assert!(a.len() % 2 == 0, "a.len() is odd");
     let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
     let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
     for (i, s) in a.iter().enumerate() {
@@ -118,36 +64,6 @@ pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
         a.push(*rv);
     }
     a
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_from_interleaved() {
-    let want_l = [0.1, 0.3, 0.5, 0.7];
-    let want_r = [0.2, 0.4, 0.6, 0.8];
-    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-    let (got_l, got_r) = from_interleaved(&t);
-    assert!(got_l.iter().zip(&want_l).all(|(a, b)| a == b));
-    assert!(got_r.iter().zip(&want_r).all(|(a, b)| a == b));
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-
-fn test_to_interleaved() {
-    let want = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-    let t_l = [0.1, 0.3, 0.5, 0.7];
-    let t_r = [0.2, 0.4, 0.6, 0.8];
-    let got = to_interleaved(&t_l, &t_r);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
-}
-
-#[test]
-#[should_panic]
-fn test_to_interleaved_invalid_vec() {
-    let t_l = [0.1, 0.3, 0.5, 0.7];
-    let t_r = [0.2, 0.4, 0.6];
-    to_interleaved(&t_l, &t_r);
 }
 
 pub trait Filter {
@@ -184,9 +100,7 @@ impl Delay {
     /// Panics if tapnum > (2^28) as it needs more than 1GiB mem.
     /// FYI: tapnum=2^28 means >699000ms delay at 384kHz :D
     pub fn with_tapnum(tapnum: usize) -> Self {
-        if tapnum > Self::MAX_TAPNUM {
-            panic!("too long duration")
-        }
+        assert!(tapnum <= Self::MAX_TAPNUM, "too long duration");
         log::debug!("delay tapnum={}", tapnum);
         let buf: Vec<f32> = vec![0.0; tapnum];
         let buf = VecDeque::from(buf);
@@ -209,52 +123,6 @@ impl Filter for Delay {
         }
         y
     }
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_delay() {
-    let want = [
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
-        0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23,
-        0.24,
-        // 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, // Note: the rest is still in the buffer
-    ];
-    let t = [
-        0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15,
-        0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.30,
-    ];
-    let got = Delay::with_tapnum(6).apply(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_delay_zero() {
-    let want = [0.01, 0.02, 0.03, 0.04];
-    let t = [0.01, 0.02, 0.03, 0.04];
-    let got = Delay::with_tapnum(0).apply(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b));
-}
-
-#[test]
-#[should_panic]
-fn test_delay_too_long() {
-    Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(&[0.01, 0.02, 0.03, 0.04]);
-}
-
-#[test]
-#[ignore]
-fn check_delay_mem() {
-    // this test needs more than 4GiB RAM (1GiB for x, Delay.buf, y, respectively, and 1GiB for somewhere else ?_?)
-    // `cargo test -- --ignored` to run
-    let tapsize = 1 << 30 >> 2;
-    let x = vec![0.123; tapsize];
-    let _y = Delay::with_tapnum(tapsize).apply(&x);
-
-    use std::{thread, time};
-    let t = time::Duration::from_millis(5000);
-    thread::sleep(t);
 }
 
 #[derive(Debug)]
@@ -293,27 +161,6 @@ impl Filter for Volume {
     // }
 }
 
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_volume_linear() {
-    let want = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
-    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    let got = Volume::new(VolumeCurve::Linear, 0.5).apply(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b))
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_volume_gain() {
-    let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-    let g_n6 = 0.5011872f32;
-    let want: Vec<f32> = t.iter().map(|x| x * g_n6).collect();
-    let got = Volume::new(VolumeCurve::Gain, -6.0).apply(&t);
-    assert!(got.iter().zip(&want).all(|(a, b)| a == b))
-}
-
-// // Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
-
 #[derive(Copy, Clone, Debug)]
 pub enum BQFType {
     LowPass,
@@ -338,7 +185,7 @@ pub enum BQFParam {
 }
 
 #[derive(Debug)]
-struct BQFCoeff {
+pub struct BQFCoeff {
     b0: f32,
     b1: f32,
     b2: f32,
@@ -450,7 +297,6 @@ impl BQFCoeff {
             a2_div_a0: a2 / a0,
         }
     }
-
     pub fn dump(&self) -> String {
         format!(
             "b\n{}\n{}\n{}\na\n{}\n{}\n{}\n",
@@ -480,6 +326,7 @@ pub struct BiquadFilter {
 }
 
 impl BiquadFilter {
+    /// Biquad Filter implementation based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
     pub fn new(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Self {
         let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
@@ -529,6 +376,10 @@ pub struct Convolver {
 }
 
 impl Convolver {
+    /// set small `max_n` in load_ir() to limit impulse response length helps performance
+    /// Tested in Core i7-4790:
+    ///   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
+    ///   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
     pub fn new(ir: &[f32]) -> Self {
         let buf = vec![0.0; ir.len()];
         let mut ir = ir.to_vec();
@@ -567,30 +418,6 @@ impl Filter for Convolver {
     }
 }
 
-#[test]
-fn test_convolve() {
-    let ir = [0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
-    let t1 = [0.01, 0.03, 0.07];
-    let t2 = [0.11, 0.13, 0.17];
-    let want1 = [0.005, 0.012, 0.033];
-    let want2 = [0.053, 0.079, 0.115];
-    let mut f = Convolver::new(&ir);
-    let got1 = f.apply(&t1);
-    let got2 = f.apply(&t2);
-    let em = 0.00000001; // enough precision?
-    assert!(got1.iter().zip(&want1).all(|(a, b)| (a - b).abs() < em));
-    assert!(got2.iter().zip(&want2).all(|(a, b)| (a - b).abs() < em));
-}
-
-#[test]
-fn test_convolve_empty() {
-    let ir = [];
-    let t = [0.01, 0.03, 0.07];
-    let want = [0.01, 0.03, 0.07];
-    let got = Convolver::new(&ir).apply(&t);
-    assert!(format!("{:?}", want) == format!("{:?}", got));
-}
-
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
     v.iter()
         .fold(String::new(), |s, x| format!("{}{}", s, x.coeff.dump()))
@@ -600,34 +427,14 @@ pub fn nextpow2(n: f32) -> usize {
     2.0f32.powf(n.log2().ceil()) as usize
 }
 
-#[test]
-fn test_nextpow2() {
-    assert!(nextpow2(1023.1f32) == 1024);
-    assert!(nextpow2(1024.1f32) == 2048);
-}
-
 pub fn generate_impulse(n: usize) -> Vec<f32> {
     let mut buf: Vec<f32> = vec![0.0; n];
     buf[0] = 1.0;
     buf
 }
 
-#[test]
-fn test_generate_impulse() {
-    assert!(
-        format!("{:?}", generate_impulse(6)) == format!("{:?}", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    );
-}
-
 pub fn generate_inverse(a: &[f32]) -> Vec<f32> {
     a.iter().map(|x| *x * -1.0).collect()
-}
-
-#[test]
-fn test_generate_inverse() {
-    let want = [-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
-    let got = generate_inverse(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
-    assert!(format!("{:?}", got) == format!("{:?}", want));
 }
 
 pub fn dump_ir(v: &mut Vec<Box<dyn Filter>>, n: usize) -> String {
@@ -637,9 +444,6 @@ pub fn dump_ir(v: &mut Vec<Box<dyn Filter>>, n: usize) -> String {
         .fold(String::new(), |s, &x| s + &x.to_string() + "\n")
 }
 
-// Tested in Core i7-4790:
-//   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
-//   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
 pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
     let mut v = Vec::new();
     for (idx, l) in s.lines().enumerate() {
@@ -657,25 +461,226 @@ pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
     v
 }
 
-#[test]
-fn test_load_ir() {
-    let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
-    let want = [1.0, 0.15, 0.39, -0.34916812, 0.10];
-    let got = load_ir(s, 4096);
-    assert!(format!("{:?}", got) == format!("{:?}", want));
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
-    let want = [1.0, 0.15];
-    let got = load_ir(s, 2);
-    assert!(format!("{:?}", got) == format!("{:?}", want));
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_i16_to_f32() {
+        let want: Vec<f32> = vec![
+            0.0,
+            3.051851E-5,
+            6.103702E-5,
+            9.155553E-5,
+            -3.0517578E-5,
+            -6.1035156E-5,
+            -9.1552734E-5,
+            1.0,
+            -1.0,
+        ];
+        let t = [0, 1, 2, 3, -1, -2, -3, std::i16::MAX, std::i16::MIN];
+        let got = i16_to_f32(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
+    }
 
-    let s = "1";
-    let want = [1.0];
-    let got = load_ir(s, 4096);
-    assert!(format!("{:?}", got) == format!("{:?}", want));
+    #[test]
+    fn test_f32_to_i16() {
+        let want = [
+            0,
+            1,
+            2,
+            3,
+            -1,
+            -2,
+            -3,
+            std::i16::MAX,
+            std::i16::MIN,
+            std::i16::MAX,
+            std::i16::MIN,
+            std::i16::MAX,
+            std::i16::MIN,
+        ];
+        let t = [
+            0.0,
+            3.051851E-5,
+            6.103702E-5,
+            9.155553E-5,
+            -3.0517578E-5,
+            -6.1035156E-5,
+            -9.1552734E-5,
+            1.0,
+            -1.0,
+            // round to [-1.0, 1.0]
+            1.0000001,
+            -1.0000001,
+            123.456,
+            -123.456,
+        ];
+        let got = f32_to_i16(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
+    }
 
-    let s = "";
-    let want: [f32; 0] = [];
-    let got = load_ir(s, 4096);
-    assert!(format!("{:?}", got) == format!("{:?}", want));
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_from_interleaved() {
+        let want_l = [0.1, 0.3, 0.5, 0.7];
+        let want_r = [0.2, 0.4, 0.6, 0.8];
+        let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        let (got_l, got_r) = from_interleaved(&t);
+        assert!(got_l.iter().zip(&want_l).all(|(a, b)| a == b));
+        assert!(got_r.iter().zip(&want_r).all(|(a, b)| a == b));
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+
+    fn test_to_interleaved() {
+        let want = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        let t_l = [0.1, 0.3, 0.5, 0.7];
+        let t_r = [0.2, 0.4, 0.6, 0.8];
+        let got = to_interleaved(&t_l, &t_r);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_to_interleaved_invalid_vec() {
+        let t_l = [0.1, 0.3, 0.5, 0.7];
+        let t_r = [0.2, 0.4, 0.6];
+        to_interleaved(&t_l, &t_r);
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_delay() {
+        let want = [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
+            0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23,
+            0.24,
+            // 0.25, 0.26, 0.27, 0.28, 0.29, 0.30, // Note: the rest is still in the buffer
+        ];
+        let t = [
+            0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14,
+            0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28,
+            0.29, 0.30,
+        ];
+        let got = Delay::with_tapnum(6).apply(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_delay_zero() {
+        let want = [0.01, 0.02, 0.03, 0.04];
+        let t = [0.01, 0.02, 0.03, 0.04];
+        let got = Delay::with_tapnum(0).apply(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_delay_too_long() {
+        Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(&[0.01, 0.02, 0.03, 0.04]);
+    }
+
+    #[test]
+    #[ignore]
+    fn check_delay_mem() {
+        // this test needs more than 4GiB RAM (1GiB for x, Delay.buf, y, respectively, and 1GiB for somewhere else ?_?)
+        // `cargo test -- --ignored` to run
+        let tapsize = 1 << 30 >> 2;
+        let x = vec![0.123; tapsize];
+        let _y = Delay::with_tapnum(tapsize).apply(&x);
+
+        use std::{thread, time};
+        let t = time::Duration::from_millis(5000);
+        thread::sleep(t);
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_volume_linear() {
+        let want = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
+        let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        let got = Volume::new(VolumeCurve::Linear, 0.5).apply(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b))
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_volume_gain() {
+        let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        let g_n6 = 0.5011872f32;
+        let want: Vec<f32> = t.iter().map(|x| x * g_n6).collect();
+        let got = Volume::new(VolumeCurve::Gain, -6.0).apply(&t);
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b))
+    }
+
+    #[test]
+    fn test_convolve() {
+        let ir = [0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
+        let t1 = [0.01, 0.03, 0.07];
+        let t2 = [0.11, 0.13, 0.17];
+        let want1 = [0.005, 0.012, 0.033];
+        let want2 = [0.053, 0.079, 0.115];
+        let mut f = Convolver::new(&ir);
+        let got1 = f.apply(&t1);
+        let got2 = f.apply(&t2);
+        let em = 0.00000001; // enough precision?
+        assert!(got1.iter().zip(&want1).all(|(a, b)| (a - b).abs() < em));
+        assert!(got2.iter().zip(&want2).all(|(a, b)| (a - b).abs() < em));
+    }
+
+    #[test]
+    fn test_convolve_empty() {
+        let ir = [];
+        let t = [0.01, 0.03, 0.07];
+        let want = [0.01, 0.03, 0.07];
+        let got = Convolver::new(&ir).apply(&t);
+        assert!(format!("{:?}", want) == format!("{:?}", got));
+    }
+
+    #[test]
+    fn test_nextpow2() {
+        assert!(nextpow2(1023.1f32) == 1024);
+        assert!(nextpow2(1024.1f32) == 2048);
+    }
+
+    #[test]
+    fn test_generate_impulse() {
+        assert!(
+            format!("{:?}", generate_impulse(6)) == format!("{:?}", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        );
+    }
+
+    #[test]
+    fn test_generate_inverse() {
+        let want = [-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
+        let got = generate_inverse(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+        assert!(format!("{:?}", got) == format!("{:?}", want));
+    }
+
+    #[test]
+    fn test_load_ir() {
+        let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
+        let want = [1.0, 0.15, 0.39, -0.34916812, 0.10];
+        let got = load_ir(s, 4096);
+        assert!(format!("{:?}", got) == format!("{:?}", want));
+
+        let s = "1\n0.15\n0.39\n-0.34916812\n\naaaaaa\n1.0000000E-1\n\n\n\n";
+        let want = [1.0, 0.15];
+        let got = load_ir(s, 2);
+        assert!(format!("{:?}", got) == format!("{:?}", want));
+
+        let s = "1";
+        let want = [1.0];
+        let got = load_ir(s, 4096);
+        assert!(format!("{:?}", got) == format!("{:?}", want));
+
+        let s = "";
+        let want: [f32; 0] = [];
+        let got = load_ir(s, 4096);
+        assert!(format!("{:?}", got) == format!("{:?}", want));
+    }
 }
