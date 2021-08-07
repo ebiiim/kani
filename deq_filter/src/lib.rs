@@ -264,7 +264,7 @@ pub struct Volume {
     ratio: f32,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum VolumeCurve {
     Linear,
     Gain,
@@ -314,7 +314,7 @@ fn test_volume_gain() {
 
 // // Biquad Filter based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum BQFType {
     LowPass,
     HighPass,
@@ -327,7 +327,7 @@ pub enum BQFType {
     HighShelf,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum BQFParam {
     // Q factor
     Q(f32),
