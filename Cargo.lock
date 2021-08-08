@@ -45,6 +45,7 @@ name = "deq"
 version = "0.1.0-dev"
 dependencies = [
  "deq_filter",
+ "deq_io",
  "env_logger",
  "hound",
  "log",
@@ -56,6 +57,16 @@ name = "deq_filter"
 version = "0.1.0-dev"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "deq_io"
+version = "0.1.0-dev"
+dependencies = [
+ "deq_filter",
+ "hound",
+ "log",
+ "portaudio",
 ]
 
 [[package]]

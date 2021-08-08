@@ -3,6 +3,7 @@ use std::env;
 use std::process;
 
 extern crate deq_filter;
+extern crate deq_io;
 
 mod cli;
 mod err;

@@ -2,4 +2,5 @@
 members = [
   "deq",
   "deq_filter",
+  "deq_io",
 ]

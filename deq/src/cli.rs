@@ -1,5 +1,6 @@
 use crate::err::DeqError;
 use crate::pautil;
+use deq_io as io;
 use portaudio as pa;
 use std::io::stdin;
 use std::io::{stdout, Write};
@@ -121,10 +122,14 @@ pub fn start(pa: &pa::PortAudio) {
                         continue;
                     }
                     if let Ok(n) = read_str("file name> ") {
-                        if let Err(e) = pautil::play_wav(pa, &n, output_dev) {
-                            log::error!("play wav err={}", e);
-                            process::exit(0);
-                        }
+                        let r = io::WaveReader::newb(&n, 1024);
+                        let w = io::PAWriter::newb(output_dev, 1024, 48000, 2);
+                        let rx = r.start().unwrap();
+                        w.start(rx).unwrap();
+                        // if let Err(e) = pautil::play_wav(pa, &n, output_dev) {
+                        //     log::error!("play wav err={}", e);
+                        //     process::exit(0);
+                        // }
                     }
                 } else if cmd == 9 {
                     if input_dev == no_dev || output_dev == no_dev {
