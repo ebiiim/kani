@@ -449,12 +449,12 @@ pub enum VocalRemoverType {
 pub struct VocalRemover {
     vrtype: VocalRemoverType,
     ll: BiquadFilter,
-    lh: BiquadFilter,
-    rl: BiquadFilter,
-    rh: BiquadFilter,
     llx: BiquadFilter,
+    lh: BiquadFilter,
     lhx: BiquadFilter,
+    rl: BiquadFilter,
     rlx: BiquadFilter,
+    rh: BiquadFilter,
     rhx: BiquadFilter,
 }
 
@@ -470,43 +470,43 @@ impl VocalRemover {
         match vrtype {
             VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
                 let ll = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
-                let lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
-                let rl = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
-                let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
                 let llx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                let lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
                 let lhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
+                let rl = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
                 let rlx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
                 let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
                 Self {
                     vrtype,
                     ll,
-                    lh,
-                    rl,
-                    rh,
                     llx,
+                    lh,
                     lhx,
+                    rl,
                     rlx,
+                    rh,
                     rhx,
                 }
             }
             _ => {
                 let ll = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let lh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rl = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let llx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let lh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let lhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rl = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let rlx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 Self {
                     vrtype,
                     ll,
-                    lh,
-                    rl,
-                    rh,
                     llx,
+                    lh,
                     lhx,
+                    rl,
                     rlx,
+                    rh,
                     rhx,
                 }
             }
