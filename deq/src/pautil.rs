@@ -42,6 +42,54 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
     Err(DeqError::Device)
 }
 
+fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) {
+    // init filters
+    let lfs: Vec<Box<dyn f::Filter>> = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
+    ];
+    let rfs: Vec<Box<dyn f::Filter>> = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
+    ];
+    (lfs, rfs)
+}
+
+fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
+    let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4800.0)),
+    ];
+    sfs
+}
+
+fn apply_filters(
+    l: &[f32],
+    r: &[f32],
+    lfs: &mut Vec<Box<dyn f::Filter>>,
+    rfs: &mut Vec<Box<dyn f::Filter>>,
+) -> (Vec<f32>, Vec<f32>) {
+    let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
+    let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
+    (l, r)
+}
+
+fn apply_filters2(
+    l: &[f32],
+    r: &[f32],
+    sfs: &mut Vec<Box<dyn f::Filter2ch>>,
+) -> (Vec<f32>, Vec<f32>) {
+    sfs.iter_mut()
+        .fold((l.to_vec(), r.to_vec()), |(l, r), f| f.apply(&l, &r))
+}
+
 pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqError> {
     // read wav
     log::debug!("read wav {}", path);
@@ -59,53 +107,40 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         log::debug!("wav must be 2ch pcm_s16le");
         return Err(DeqError::Format);
     }
-    let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
+    let rbuf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
 
     // init filters
     let fs = reader.spec().sample_rate as f32;
-    let mut lfs: Vec<Box<dyn f::Filter>> = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Volume::newb(VolumeCurve::Linear, 0.2),
-        // Delay::newb(200, fs as usize),
-    ];
-    let mut rfs: Vec<Box<dyn f::Filter>> = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Volume::newb(VolumeCurve::Linear, 0.2),
-        // Delay::newb(200, fs as usize),
-    ];
-
-    let mut sfs: Vec<Box<dyn f::Filter2ch>> = vec![
-        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
-        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4500.0)),
-    ];
-
-    // // attempted to update in-place (1/2)
-    // let mut rfs2: Vec<Box<dyn f::Filter>> = vec![Volume::newb(VolumeCurve::Linear, 1.0)];
-
-    // apply filters
-    let buf = f::i16_to_f32(&buf);
-    let (l, r) = f::from_interleaved(&buf);
-    let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
-    let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
-
-    let (l, r) = sfs.iter_mut().fold((l, r), |(l, r), f| f.apply(&l, &r));
-
-    // // attempted to update in-place (2/2)
-    // let mut r = r;
-    // rfs2.iter_mut().for_each(|f| f.apply2(&mut r));
-
-    let buf = f::to_interleaved(&l, &r);
-    let mut buf = buf.into_iter();
+    let (mut lfs, mut rfs) = setup_filters(fs);
+    let mut sfs = setup_filters2(fs);
 
     // pa stream
     let ch = 2;
-    let frame = 1024;
+    let frame: u32 = 1024;
     let interleaved = true;
+
+    // apply filters
+    let uframe = frame as usize;
+    let mut rbuf = f::i16_to_f32(&rbuf);
+    let zero_paddings = uframe - (rbuf.len() as usize % uframe);
+    let zeros = vec![0.0; zero_paddings];
+    rbuf.extend(zeros);
+    assert_eq!(rbuf.len() % uframe, 0);
+    let mut buf = Vec::with_capacity(rbuf.len());
+    let loopnum = rbuf.len() / uframe;
+    for i in 0..loopnum {
+        let a = i * uframe;
+        let b = (i + 1) * uframe;
+        let tmp = rbuf[a..b].to_vec();
+        let (l, r) = f::from_interleaved(&tmp);
+        let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
+        let (l, r) = apply_filters2(&l, &r, &mut sfs);
+        let tmp = f::to_interleaved(&l, &r);
+        buf.extend(tmp);
+    }
+    assert_eq!(buf.len(), rbuf.len());
+    let mut buf = buf.into_iter();
+
     let player_info = get_device_info(pa, dev)?;
     // let rate = player_info.default_sample_rate;
     let rate = fs as f64; // try wav's rate instead of default_sample_rate
@@ -194,24 +229,8 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
 
     // init filters
     let fs = rate as f32;
-    const CONV_N: usize = 1024 * 2;
-    let ir = f::load_ir(&std::fs::read_to_string("ir").expect(""), CONV_N);
-    let mut lfs: Vec<Box<dyn f::Filter>> = vec![
-        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Convolver::newb(&ir),
-        Volume::newb(VolumeCurve::Gain, -12.0),
-        // Delay::newb(200, fs as usize),
-    ];
-    let mut rfs: Vec<Box<dyn f::Filter>> = vec![
-        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Convolver::newb(&ir),
-        Volume::newb(VolumeCurve::Gain, -12.0),
-        // Delay::newb(200, fs as usize),
-    ];
+    let (mut lfs, mut rfs) = setup_filters(fs);
+    let mut sfs = setup_filters2(fs);
 
     // // use thread to process signals (1/3)
     // let (send_lx, recv_lx) = ::std::sync::mpsc::channel();
@@ -266,16 +285,14 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
         let start = time::Instant::now();
         // --- measure latency ---
         let (l, r) = f::from_interleaved(in_buffer);
-
+        // apply filters
+        let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
+        let (l, r) = apply_filters2(&l, &r, &mut sfs);
         // // use thread to process signals (2/3)
         // send_lx.send(l).ok();
         // send_rx.send(r).ok();
         // let l = recv_ly.recv().unwrap();
         // let r = recv_ry.recv().unwrap();
-
-        let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
-        let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
-
         let buf = f::to_interleaved(&l, &r);
         for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.iter()) {
             *o_sample = *i_sample;
