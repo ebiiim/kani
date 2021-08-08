@@ -448,10 +448,14 @@ pub enum VocalRemoverType {
 #[derive(Debug)]
 pub struct VocalRemover {
     vrtype: VocalRemoverType,
-    l: BiquadFilter,
-    h: BiquadFilter,
-    x1: BiquadFilter,
-    x2: BiquadFilter,
+    ll: BiquadFilter,
+    lh: BiquadFilter,
+    rl: BiquadFilter,
+    rh: BiquadFilter,
+    llx: BiquadFilter,
+    lhx: BiquadFilter,
+    rlx: BiquadFilter,
+    rhx: BiquadFilter,
 }
 
 impl VocalRemover {
@@ -465,29 +469,45 @@ impl VocalRemover {
     pub fn new(vrtype: VocalRemoverType) -> Self {
         match vrtype {
             VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
-                let l = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
-                let h = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
-                let x1 = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
-                let x2 = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
+                let ll = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
+                let lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
+                let rl = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
+                let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
+                let llx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                let lhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
+                let rlx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
                 Self {
                     vrtype,
-                    l,
-                    h,
-                    x1,
-                    x2,
+                    ll,
+                    lh,
+                    rl,
+                    rh,
+                    llx,
+                    lhx,
+                    rlx,
+                    rhx,
                 }
             }
             _ => {
-                let l = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let h = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let x1 = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let x2 = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let ll = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let lh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rl = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let llx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let lhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rlx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 Self {
                     vrtype,
-                    l,
-                    h,
-                    x1,
-                    x2,
+                    ll,
+                    lh,
+                    rl,
+                    rh,
+                    llx,
+                    lhx,
+                    rlx,
+                    rhx,
                 }
             }
         }
@@ -505,12 +525,12 @@ impl Filter2ch for VocalRemover {
                 (lr.clone(), lr)
             }
             VocalRemoverType::RemoveCenterBW(_, _, _) => {
-                let ll = self.l.apply(l); // low (L ch)
-                let lh = self.h.apply(l); // high (L ch)
-                let rl = self.l.apply(r); // low (R ch)
-                let rh = self.h.apply(r); // high (R ch)
-                let lm = self.x2.apply(&self.x1.apply(l)); // mid (L ch)
-                let rm = self.x2.apply(&self.x1.apply(r)); // mid (R ch)
+                let ll = self.ll.apply(l); // low (L ch)
+                let lh = self.lh.apply(l); // high (L ch)
+                let rl = self.rl.apply(r); // low (R ch)
+                let rh = self.rh.apply(r); // high (R ch)
+                let lm = self.lhx.apply(&self.llx.apply(l)); // mid (L ch)
+                let rm = self.rhx.apply(&self.rlx.apply(r)); // mid (R ch)
                 let center: Vec<f32> = lm.iter().zip(&rm).map(|(l, r)| l - r).collect(); // mid (L-R)
 
                 let len = l.len();
