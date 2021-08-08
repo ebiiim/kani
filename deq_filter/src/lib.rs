@@ -415,7 +415,7 @@ impl Filter for Convolver {
             self.buf.pop_front().unwrap();
             self.buf.push_back(*input_x);
             let mut y = 0.0f32;
-            for (x, k) in self.buf.iter().zip(self.ir.iter()) {
+            for (x, k) in self.buf.iter().zip(&self.ir) {
                 y += x * k;
             }
             vy.push(y);
