@@ -72,6 +72,10 @@ pub trait Filter {
     // fn apply2(&mut self, xs: &mut Vec<f32>);
 }
 
+pub trait Filter2ch {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
+}
+
 #[derive(Debug)]
 pub struct Delay {
     tapnum: usize,
@@ -328,6 +332,15 @@ pub struct BiquadFilter {
 impl BiquadFilter {
     /// Biquad Filter implementation based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
     pub fn new(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Self {
+        // validation
+        let mut f0 = f0;
+        if f0 >= rate / 2.0 {
+            f0 = (rate / 2.0) - 2.0;
+        }
+        if f0 <= 0.0 {
+            f0 = 2.0;
+        }
+
         let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
             filter_type,
@@ -421,6 +434,95 @@ impl Filter for Convolver {
             vy.push(y);
         }
         vy
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum VocalRemoverType {
+    RemoveCenter,
+    /// (Sampling rate, Remove start, Remove end)
+    /// e.g., RemoveCenterBW(48000.0, 220.0, 4400.0)
+    RemoveCenterBW(f32, f32, f32),
+}
+
+#[derive(Debug)]
+pub struct VocalRemover {
+    vrtype: VocalRemoverType,
+    l: BiquadFilter,
+    h: BiquadFilter,
+    x1: BiquadFilter,
+    x2: BiquadFilter,
+}
+
+impl VocalRemover {
+    // filter rate from http://www.asahi-net.or.jp/~ab6s-med/NORTH/SP/netwark.htm
+    #[allow(clippy::excessive_precision)]
+    const RL: f32 = 0.755428370777;
+    #[allow(clippy::excessive_precision)]
+    const RH: f32 = 1.313019052859;
+    const P: BQFParam = BQFParam::BW(1.0);
+
+    pub fn new(vrtype: VocalRemoverType) -> Self {
+        match vrtype {
+            VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
+                let l = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
+                let h = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
+                let x1 = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                let x2 = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
+                Self {
+                    vrtype,
+                    l,
+                    h,
+                    x1,
+                    x2,
+                }
+            }
+            _ => {
+                let l = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let h = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let x1 = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                let x2 = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
+                Self {
+                    vrtype,
+                    l,
+                    h,
+                    x1,
+                    x2,
+                }
+            }
+        }
+    }
+    pub fn newb(vrtype: VocalRemoverType) -> Box<dyn Filter2ch> {
+        Box::new(Self::new(vrtype))
+    }
+}
+
+impl Filter2ch for VocalRemover {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        match self.vrtype {
+            VocalRemoverType::RemoveCenter => {
+                let lr: Vec<f32> = l.iter().zip(r).map(|(l, r)| l - r).collect();
+                (lr.clone(), lr)
+            }
+            VocalRemoverType::RemoveCenterBW(_, _, _) => {
+                let ll = self.l.apply(l); // low (L ch)
+                let lh = self.h.apply(l); // high (L ch)
+                let rl = self.l.apply(r); // low (R ch)
+                let rh = self.h.apply(r); // high (R ch)
+                let lm = self.x2.apply(&self.x1.apply(l)); // mid (L ch)
+                let rm = self.x2.apply(&self.x1.apply(r)); // mid (R ch)
+                let center: Vec<f32> = lm.iter().zip(&rm).map(|(l, r)| l - r).collect(); // mid (L-R)
+
+                let len = l.len();
+                let mut lo = Vec::with_capacity(len); // output (L ch)
+                let mut ro = Vec::with_capacity(len); // output (R ch)
+                for i in 0..len {
+                    lo.push(ll[i] + center[i] + lh[i]);
+                    ro.push(rl[i] + center[i] + rh[i]);
+                }
+                (lo, ro)
+            }
+        }
     }
 }
 
@@ -644,6 +746,19 @@ mod tests {
         let want = [0.01, 0.03, 0.07];
         let got = Convolver::new(&ir).apply(&t);
         assert!(format!("{:?}", want) == format!("{:?}", got));
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn test_vocal_remover_remove_center() {
+        let t1 = [0.01, 0.02, 0.07];
+        let t2 = [0.11, 0.04, 0.17];
+        let want1 = [-0.10, -0.02, -0.10];
+        let want2 = [-0.10, -0.02, -0.10];
+        let mut f = VocalRemover::new(VocalRemoverType::RemoveCenter);
+        let (got1, got2) = f.apply(&t1, &t2);
+        assert!(got1.iter().zip(&want1).all(|(a, b)| a == b));
+        assert!(got2.iter().zip(&want2).all(|(a, b)| a == b));
     }
 
     #[test]

@@ -25,7 +25,41 @@ fn run_dump_ir() {
     println!("{}", f::dump_ir(&mut v, n));
 }
 
+fn run_dump_ir_vocal_remover() {
+    const FS: f32 = 48000.0;
+    let len = f::nextpow2(FS);
+    let a = f::generate_impulse(len);
+
+    const r1: f32 = 0.755428370777;
+    const r2: f32 = 1.313019052859;
+    let f1 = 440.0;
+    let f11 = f1 * r1;
+    let f12 = f1 * r2;
+    let f2 = 6600.0;
+    let mut f21 = f2 * r1;
+    let mut f22 = f2 * r2;
+
+    let l = BiquadFilter::newb(BQFType::LowPass, FS, f11, 0.0, BQFParam::BW(1.0)).apply(&a);
+    let h = BiquadFilter::newb(BQFType::HighPass, FS, f22, 0.0, BQFParam::BW(1.0)).apply(&a);
+
+    let x = BiquadFilter::newb(BQFType::HighPass, FS, f12, 0.0, BQFParam::BW(1.0)).apply(&a);
+    let x = BiquadFilter::newb(BQFType::LowPass, FS, f21, 0.0, BQFParam::BW(1.0)).apply(&x);
+    let x = Volume::newb(VolumeCurve::Gain, 0.0).apply(&x);
+
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        out.push(l[i] + x[i] + h[i]);
+    }
+
+    println!(
+        "{}",
+        out.iter()
+            .fold(String::new(), |s, &x| s + &x.to_string() + "\n")
+    );
+}
+
 fn main() {
     // run_dump_coeffs();
-    run_dump_ir();
+    // run_dump_ir();
+    run_dump_ir_vocal_remover();
 }

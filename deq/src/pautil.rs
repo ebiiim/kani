@@ -4,6 +4,7 @@ use deq_filter::Convolver;
 use deq_filter::Delay;
 use deq_filter::Filter;
 use deq_filter::{BQFParam, BQFType, BiquadFilter};
+use deq_filter::{VocalRemover, VocalRemoverType};
 use deq_filter::{Volume, VolumeCurve};
 use portaudio as pa;
 use std::{thread, time};
@@ -63,18 +64,24 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     // init filters
     let fs = reader.spec().sample_rate as f32;
     let mut lfs: Vec<Box<dyn f::Filter>> = vec![
-        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Linear, 0.2),
-        Delay::newb(200, fs as usize),
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Linear, 0.2),
+        // Delay::newb(200, fs as usize),
     ];
     let mut rfs: Vec<Box<dyn f::Filter>> = vec![
-        BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Linear, 0.2),
-        Delay::newb(200, fs as usize),
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Linear, 0.2),
+        // Delay::newb(200, fs as usize),
+    ];
+
+    let mut sfs: Vec<Box<dyn f::Filter2ch>> = vec![
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4500.0)),
     ];
 
     // // attempted to update in-place (1/2)
@@ -85,6 +92,8 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let (l, r) = f::from_interleaved(&buf);
     let l = lfs.iter_mut().fold(l, |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r, |x, f| f.apply(&x));
+
+    let (l, r) = sfs.iter_mut().fold((l, r), |(l, r), f| f.apply(&l, &r));
 
     // // attempted to update in-place (2/2)
     // let mut r = r;
