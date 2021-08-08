@@ -106,7 +106,7 @@ impl Delay {
         let buf = VecDeque::from(buf);
         Self { tapnum, buf }
     }
-    pub fn newb(time_ms: usize, sample_rate: usize) -> Box<Self> {
+    pub fn newb(time_ms: usize, sample_rate: usize) -> Box<dyn Filter> {
         Box::new(Self::new(time_ms, sample_rate))
     }
 }
@@ -147,7 +147,7 @@ impl Volume {
         log::debug!("volume {:?}({})=>{}", curve, val, ratio);
         Self { curve, val, ratio }
     }
-    pub fn newb(curve: VolumeCurve, val: f32) -> Box<Self> {
+    pub fn newb(curve: VolumeCurve, val: f32) -> Box<dyn Filter> {
         Box::new(Self::new(curve, val))
     }
 }
@@ -342,7 +342,13 @@ impl BiquadFilter {
         log::debug!("BiquadFilter::new {:?}", bqf);
         bqf
     }
-    pub fn newb(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Box<Self> {
+    pub fn newb(
+        filter_type: BQFType,
+        rate: f32,
+        f0: f32,
+        gain: f32,
+        param: BQFParam,
+    ) -> Box<dyn Filter> {
         Box::new(Self::new(filter_type, rate, f0, gain, param))
     }
 }
@@ -389,7 +395,7 @@ impl Convolver {
             buf: VecDeque::from(buf),
         }
     }
-    pub fn newb(ir: &[f32]) -> Box<Self> {
+    pub fn newb(ir: &[f32]) -> Box<dyn Filter> {
         Box::new(Self::new(ir))
     }
 }
@@ -534,7 +540,6 @@ mod tests {
 
     #[test]
     #[allow(clippy::float_cmp)]
-
     fn test_to_interleaved() {
         let want = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
         let t_l = [0.1, 0.3, 0.5, 0.7];
@@ -604,7 +609,7 @@ mod tests {
         let want = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
         let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
         let got = Volume::new(VolumeCurve::Linear, 0.5).apply(&t);
-        assert!(got.iter().zip(&want).all(|(a, b)| a == b))
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
     #[test]
@@ -614,11 +619,11 @@ mod tests {
         let g_n6 = 0.5011872f32;
         let want: Vec<f32> = t.iter().map(|x| x * g_n6).collect();
         let got = Volume::new(VolumeCurve::Gain, -6.0).apply(&t);
-        assert!(got.iter().zip(&want).all(|(a, b)| a == b))
+        assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
     #[test]
-    fn test_convolve() {
+    fn test_convolver() {
         let ir = [0.5, -0.3, 0.7, -0.2, 0.4, -0.6, -0.1, -0.01];
         let t1 = [0.01, 0.03, 0.07];
         let t2 = [0.11, 0.13, 0.17];
@@ -633,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convolve_empty() {
+    fn test_convolver_empty() {
         let ir = [];
         let t = [0.01, 0.03, 0.07];
         let want = [0.01, 0.03, 0.07];
