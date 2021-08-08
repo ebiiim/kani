@@ -275,7 +275,7 @@ impl BQFCoeff {
                 a2 = (a + 1.0) + (a - 1.0) * w0_cos - 2.0 * a.sqrt() * alpha;
             }
             BQFType::HighShelf => {
-                b0 = a * ((a + 1.0) - (a - 1.0) * w0_cos + 2.0 * a.sqrt() * alpha);
+                b0 = a * ((a + 1.0) + (a - 1.0) * w0_cos + 2.0 * a.sqrt() * alpha);
                 b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * w0_cos);
                 b2 = a * ((a + 1.0) + (a - 1.0) * w0_cos - 2.0 * a.sqrt() * alpha);
                 a0 = (a + 1.0) - (a - 1.0) * w0_cos + 2.0 * a.sqrt() * alpha;
