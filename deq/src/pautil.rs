@@ -86,8 +86,25 @@ fn apply_filters2(
     r: &[f32],
     sfs: &mut Vec<Box<dyn f::Filter2ch>>,
 ) -> (Vec<f32>, Vec<f32>) {
-    sfs.iter_mut()
-        .fold((l.to_vec(), r.to_vec()), |(l, r), f| f.apply(&l, &r))
+    assert_eq!(l.len(), r.len());
+    let debug = l.len();
+
+    // this returns wrong length vecs
+    // let (l, r) = sfs
+    //     .iter_mut()
+    //     .fold((l.to_vec(), r.to_vec()), |(l, r), f| f.apply(&l, &r));
+
+    let mut l = l.to_vec();
+    let mut r = r.to_vec();
+    // compile error "destructuring assignments are unstable"
+    // (l2, r2) = sfs[0].apply(&l, &r);
+    let (l2, r2) = sfs[0].apply(&l, &r);
+    l = l2;
+    r = r2;
+
+    assert_eq!(l.len(), r.len());
+    assert_eq!(l.len(), debug);
+    (l, r)
 }
 
 pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqError> {
@@ -120,7 +137,7 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
     let interleaved = true;
 
     // apply filters
-    let uframe = frame as usize;
+    let uframe = frame as usize * ch as usize;
     let mut rbuf = f::i16_to_f32(&rbuf);
     let zero_paddings = uframe - (rbuf.len() as usize % uframe);
     let zeros = vec![0.0; zero_paddings];
@@ -132,10 +149,12 @@ pub fn play_wav(pa: &pa::PortAudio, path: &str, dev: usize) -> Result<(), DeqErr
         let a = i * uframe;
         let b = (i + 1) * uframe;
         let tmp = rbuf[a..b].to_vec();
+        assert_eq!(tmp.len(), uframe);
         let (l, r) = f::from_interleaved(&tmp);
         let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
         let (l, r) = apply_filters2(&l, &r, &mut sfs);
         let tmp = f::to_interleaved(&l, &r);
+        assert_eq!(tmp.len(), uframe);
         buf.extend(tmp);
     }
     assert_eq!(buf.len(), rbuf.len());
@@ -284,16 +303,18 @@ pub fn play(pa: &pa::PortAudio, i_dev: usize, o_dev: usize) -> Result<(), DeqErr
                          }| {
         let start = time::Instant::now();
         // --- measure latency ---
+        assert_eq!(in_buffer.len(), frame as usize * 2);
         let (l, r) = f::from_interleaved(in_buffer);
         // apply filters
         let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
         let (l, r) = apply_filters2(&l, &r, &mut sfs);
+        let buf = f::to_interleaved(&l, &r);
+        assert_eq!(buf.len(), frame as usize * 2);
         // // use thread to process signals (2/3)
         // send_lx.send(l).ok();
         // send_rx.send(r).ok();
         // let l = recv_ly.recv().unwrap();
         // let r = recv_ry.recv().unwrap();
-        let buf = f::to_interleaved(&l, &r);
         for (o_sample, i_sample) in out_buffer.iter_mut().zip(buf.iter()) {
             *o_sample = *i_sample;
         }
