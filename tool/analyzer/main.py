@@ -199,13 +199,14 @@ def main():
         sys.exit(1)
 
     # get title
-    title = args.title
-    if title == "":  # generate default title
+    if len(args.title) == 0:  # generate default title
         title = dt.now().strftime("%Y%m%d-%H%M%S")
         if rt == ResultType.COEFF:
             title += " (Coeff.)"
         else:
             title += " (IR)"
+    else:
+        title = args.title[0]
 
     # plot
     if rt == ResultType.COEFF:
