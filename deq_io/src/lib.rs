@@ -63,13 +63,13 @@ pub struct Info {
 }
 
 pub trait Input {
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
     fn info(&self) -> Info;
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
 }
 
 pub trait Output {
-    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
     fn info(&self) -> Info;
+    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
 }
 
 pub trait Processor {
@@ -178,16 +178,100 @@ impl Input for WaveReader {
 //     }
 // }
 
-// #[derive(Debug)]
-// pub struct PAReader {}
+#[derive(Debug)]
+pub struct PAReader {
+    info: Info,
+    dev: usize,
+}
 
-// impl PAReader {}
+impl PAReader {
+    pub fn new(dev: usize, frame: Frame, rate: Rate, ch: Ch) -> Self {
+        PAReader {
+            info: Info {
+                frame,
+                rate,
+                input_ch: 0,
+                output_ch: ch,
+            },
+            dev,
+        }
+    }
+    pub fn info(&self) -> Info {
+        self.info
+    }
+}
 
-// impl Input for PAReader {
-//     fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
-//         unimplemented!();
-//     }
-// }
+impl Input for PAReader {
+    fn info(&self) -> Info {
+        self.info
+    }
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+        let pa = pa::PortAudio::new();
+        if pa.is_err() {
+            log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
+            return Err(IOError::Device);
+        }
+        let pa = pa.unwrap();
+        let ch = self.info.output_ch as i32;
+        let interleaved = true;
+        let frame = self.info.frame as u32;
+        let player_info = get_device_info(&pa, self.dev)?;
+        let rate = self.info.rate as f64;
+        let latency = player_info.default_low_input_latency;
+        let stream_params = pa::StreamParameters::<f32>::new(
+            pa::DeviceIndex(self.dev as u32),
+            ch,
+            interleaved,
+            latency,
+        );
+        if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
+            log::error!("format not supported err={}", e);
+            return Err(IOError::Format);
+        }
+        let settings = pa::InputStreamSettings::new(stream_params, rate, frame);
+        let stream = pa.open_blocking_stream(settings);
+        if let Err(e) = stream {
+            log::error!("could not open stream err={}", e);
+            return Err(IOError::Format);
+        }
+        let mut stream = stream.unwrap();
+        if let Err(e) = stream.start() {
+            log::error!("could not start stream err={}", e);
+            return Err(IOError::Format);
+        }
+        log::debug!("stream started info={:?}", stream.info());
+
+        status_tx.send(Status::TxInit).unwrap();
+
+        loop {
+            match stream.read(frame) {
+                Ok(b) => match tx.send(b.to_vec()) {
+                    Ok(_) => {
+                        status_tx.send(Status::TxAck).unwrap();
+                    }
+                    Err(e) => {
+                        status_tx.send(Status::TxErr).unwrap();
+                        log::warn!("TxErr err={}", e);
+                    }
+                },
+                Err(e) => {
+                    status_tx.send(Status::TxErr).unwrap();
+                    log::warn!("TxErr err={}", e);
+                }
+            }
+        }
+
+        // TODO: how to stop this?
+        if let Err(e) = stream.stop() {
+            status_tx.send(Status::TxErr).unwrap();
+            log::warn!("could not stop input stream err={}", e);
+        }
+
+        status_tx.send(Status::TxFin).unwrap();
+
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 pub struct PAWriter {
