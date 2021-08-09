@@ -546,6 +546,30 @@ impl Filter2ch for VocalRemover {
     }
 }
 
+#[derive(Debug)]
+pub struct NopFilter;
+
+impl Filter for NopFilter {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        xs.to_vec()
+    }
+}
+
+#[derive(Debug)]
+pub struct PairFilter<F1: Filter, F2: Filter>(F1, F2);
+
+impl<F1: Filter, F2: Filter> PairFilter<F1, F2> {
+    pub fn new(l: F1, r: F2) -> Self {
+        PairFilter(l, r)
+    }
+}
+
+impl<F1: Filter, F2: Filter> Filter2ch for PairFilter<F1, F2> {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        (self.0.apply(l), self.1.apply(r))
+    }
+}
+
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
     v.iter()
         .fold(String::new(), |s, x| format!("{}{}", s, x.coeff.dump()))

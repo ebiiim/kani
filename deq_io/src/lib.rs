@@ -313,23 +313,30 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Gain, -12.0),
+        Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
     ];
     let rfs: Vec<Box<dyn f::Filter>> = vec![
         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        Volume::newb(VolumeCurve::Gain, -12.0),
+        Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
     ];
     (lfs, rfs)
 }
 
 fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
+    let vf = f::PairFilter::new(
+        // f::NopFilter,
+        // Delay::new(400, fs as usize),
+        Volume::new(VolumeCurve::Gain, -6.0),
+        Volume::new(VolumeCurve::Gain, -6.0),
+    );
     let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        Box::new(vf),
         VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4800.0)),
     ];
     sfs
