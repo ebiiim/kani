@@ -1,11 +1,15 @@
 use deq_filter as f;
+use deq_filter::Convolver;
+use deq_filter::Delay;
+use deq_filter::Filter;
+use deq_filter::{BQFParam, BQFType, BiquadFilter};
+use deq_filter::{VocalRemover, VocalRemoverType};
+use deq_filter::{Volume, VolumeCurve};
 use portaudio as pa;
-use std::env;
 use std::error;
 use std::fmt;
-use std::process;
-use std::thread;
-
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::time;
 extern crate deq_filter;
 
 #[derive(Debug)]
@@ -31,14 +35,38 @@ type Rate = usize;
 type Bit = usize;
 type Ch = usize;
 
-use std::sync::mpsc::{channel, Receiver, Sender};
+#[derive(Debug)]
+pub enum Status {
+    TxInit,
+    TxAck,
+    TxFin,
+    TxErr,
+    RxInit,
+    RxAck,
+    RxFin,
+    RxErr,
+    /// Latency in microseconds.
+    ///
+    /// Input and Output do not send latency for now,
+    /// Processor sends filter latency (without IO latency).
+    Latency(u32),
+}
 
 pub trait Input {
-    fn start(&self) -> Result<Receiver<Vec<f32>>, IOError>;
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
 }
 
 pub trait Output {
-    fn start(&self, rx: Receiver<Vec<f32>>) -> Result<(), IOError>;
+    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
+}
+
+pub trait Processor {
+    fn run(
+        &self,
+        rx: Receiver<Vec<f32>>,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError>;
 }
 
 #[derive(Debug)]
@@ -55,13 +83,10 @@ impl WaveReader {
             path: String::from(path),
         }
     }
-    pub fn newb(path: &str, frame: Frame) -> Box<dyn Input> {
-        Box::new(Self::new(path, frame))
-    }
 }
 
 impl Input for WaveReader {
-    fn start(&self) -> Result<Receiver<Vec<f32>>, IOError> {
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         let reader = hound::WavReader::open(&self.path);
         if let Err(e) = reader {
             log::error!("could not open wav err={}", e);
@@ -73,7 +98,7 @@ impl Input for WaveReader {
             || reader.spec().bits_per_sample != 16
             || reader.spec().channels != 2
         {
-            log::debug!("wav must be 2ch pcm_s16le");
+            log::error!("wav must be 2ch pcm_s16le for now");
             return Err(IOError::Format);
         }
         // TODO: read in play loop?
@@ -85,22 +110,29 @@ impl Input for WaveReader {
         let zeros = vec![0.0; zero_paddings];
         buf.extend(zeros);
         assert_eq!(buf.len() % uframe, 0);
-
-        let (tx, rx) = channel();
-
+        let status_tx2 = status_tx.clone();
         let loopnum = buf.len() / uframe;
-        let _ = thread::spawn(move || {
-            for i in 0..loopnum {
-                let a = i * uframe;
-                let b = (i + 1) * uframe;
-                let buf = buf[a..b].to_vec();
-                assert_eq!(buf.len(), uframe);
-                tx.send(buf).unwrap();
-            }
-            drop(tx);
-        });
 
-        Ok(rx)
+        status_tx.send(Status::TxInit).unwrap();
+
+        for i in 0..loopnum {
+            let a = i * uframe;
+            let b = (i + 1) * uframe;
+            let buf = buf[a..b].to_vec();
+            assert_eq!(buf.len(), uframe);
+            match tx.send(buf) {
+                Ok(_) => {
+                    status_tx2.send(Status::TxAck).unwrap();
+                }
+                Err(e) => {
+                    status_tx2.send(Status::TxErr).unwrap();
+                    log::error!("{}", e);
+                }
+            }
+        }
+
+        status_tx2.send(Status::TxFin).unwrap();
+        Ok(())
     }
 }
 
@@ -110,7 +142,7 @@ pub struct WaveWriter {}
 impl WaveWriter {}
 
 impl Output for WaveWriter {
-    fn start(&self, rx: Receiver<Vec<f32>>) -> Result<(), IOError> {
+    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         unimplemented!();
     }
 }
@@ -121,7 +153,7 @@ pub struct PAReader {}
 impl PAReader {}
 
 impl Input for PAReader {
-    fn start(&self) -> Result<Receiver<Vec<f32>>, IOError> {
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         unimplemented!();
     }
 }
@@ -143,13 +175,10 @@ impl PAWriter {
             ch,
         }
     }
-    pub fn newb(dev: usize, frame: Frame, rate: Rate, ch: Ch) -> Box<dyn Output> {
-        Box::new(Self::new(dev, frame, rate, ch))
-    }
 }
 
 impl Output for PAWriter {
-    fn start(&self, rx: Receiver<Vec<f32>>) -> Result<(), IOError> {
+    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         let pa = pa::PortAudio::new();
         if pa.is_err() {
             log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -172,9 +201,8 @@ impl Output for PAWriter {
             log::error!("format not supported err={}", e);
             return Err(IOError::Format);
         }
-        let stream_settings = pa::OutputStreamSettings::new(stream_params, rate, frame);
-        log::trace!("open stream");
-        let stream = pa.open_blocking_stream(stream_settings);
+        let settings = pa::OutputStreamSettings::new(stream_params, rate, frame);
+        let stream = pa.open_blocking_stream(settings);
         if let Err(e) = stream {
             log::error!("could not open stream err={}", e);
             return Err(IOError::Format);
@@ -185,8 +213,10 @@ impl Output for PAWriter {
             return Err(IOError::Format);
         }
         log::debug!("stream started info={:?}", stream.info());
-        // playback
         let num_samples = (frame * ch as u32) as usize;
+
+        status_tx.send(Status::RxInit).unwrap();
+
         for buf in rx {
             if let Err(e) = stream.write(frame, |w| {
                 assert_eq!(buf.len(), num_samples);
@@ -194,18 +224,23 @@ impl Output for PAWriter {
                     w[idx] = *sample;
                 }
             }) {
+                status_tx.send(Status::RxErr).unwrap();
                 log::warn!("playback stream err={}", e);
             };
         }
+
         if let Err(e) = stream.stop() {
+            status_tx.send(Status::RxErr).unwrap();
             log::warn!("could not stop playback stream err={}", e);
         }
+
+        status_tx.send(Status::RxFin).unwrap();
+
         Ok(())
     }
 }
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, IOError> {
-    log::trace!("get devices");
     let devs = pa.devices();
     match devs {
         Ok(devs) => Ok(devs
@@ -221,7 +256,6 @@ pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, IOEr
 
 pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo, IOError> {
     let devidx = pa::DeviceIndex(idx as u32);
-    log::trace!("get devices");
     let devs = pa.devices();
     if let Ok(devs) = devs {
         for d in devs {
@@ -235,4 +269,113 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
         }
     }
     Err(IOError::Device)
+}
+
+fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) {
+    // init filters
+    let lfs: Vec<Box<dyn f::Filter>> = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
+    ];
+    let rfs: Vec<Box<dyn f::Filter>> = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        // Delay::newb(200, fs as usize),
+    ];
+    (lfs, rfs)
+}
+
+fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
+    let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4800.0)),
+    ];
+    sfs
+}
+
+fn apply_filters(
+    l: &[f32],
+    r: &[f32],
+    lfs: &mut Vec<Box<dyn f::Filter>>,
+    rfs: &mut Vec<Box<dyn f::Filter>>,
+) -> (Vec<f32>, Vec<f32>) {
+    let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
+    let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
+    (l, r)
+}
+
+fn apply_filters2(
+    l: &[f32],
+    r: &[f32],
+    sfs: &mut Vec<Box<dyn f::Filter2ch>>,
+) -> (Vec<f32>, Vec<f32>) {
+    assert_eq!(l.len(), r.len());
+    let debug = l.len();
+
+    // this returns wrong length vecs
+    // let (l, r) = sfs
+    //     .iter_mut()
+    //     .fold((l.to_vec(), r.to_vec()), |(l, r), f| f.apply(&l, &r));
+
+    let mut l = l.to_vec();
+    let mut r = r.to_vec();
+    // compile error "destructuring assignments are unstable"
+    // (l2, r2) = sfs[0].apply(&l, &r);
+    let (l2, r2) = sfs[0].apply(&l, &r);
+    l = l2;
+    r = r2;
+
+    assert_eq!(l.len(), r.len());
+    assert_eq!(l.len(), debug);
+    (l, r)
+}
+
+pub struct DSP {}
+
+impl Processor for DSP {
+    fn run(
+        &self,
+        rx: Receiver<Vec<f32>>,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError> {
+        // init filters
+        let fs = 48000.0;
+        let (mut lfs, mut rfs) = setup_filters(fs);
+        let mut sfs = setup_filters2(fs);
+
+        status_tx.send(Status::RxInit).unwrap();
+        status_tx.send(Status::TxInit).unwrap();
+
+        for buf in rx {
+            status_tx.send(Status::RxAck).unwrap();
+            let start = time::Instant::now();
+            // --- measure latency ---
+            let (l, r) = f::from_interleaved(&buf);
+            let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
+            let (l, r) = apply_filters2(&l, &r, &mut sfs);
+            let buf = f::to_interleaved(&l, &r);
+            // -----------------------
+            let end = start.elapsed();
+            status_tx.send(Status::Latency(end.as_micros() as u32)).ok();
+            match tx.send(buf) {
+                Ok(_) => {
+                    status_tx.send(Status::TxAck).unwrap();
+                }
+                Err(e) => {
+                    status_tx.send(Status::TxErr).unwrap();
+                    log::error!("could not send data {}", e);
+                }
+            }
+        }
+        status_tx.send(Status::RxFin).unwrap();
+        status_tx.send(Status::TxFin).unwrap();
+        Ok(())
+    }
 }

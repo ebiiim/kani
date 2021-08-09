@@ -5,6 +5,8 @@ use portaudio as pa;
 use std::io::stdin;
 use std::io::{stdout, Write};
 use std::process;
+use std::sync::mpsc::sync_channel;
+use std::thread;
 
 fn print_devices(pa: &pa::PortAudio) -> Result<(), DeqError> {
     let device_names = pautil::get_device_names(pa)?;
@@ -55,6 +57,56 @@ fn read_int(s: &str) -> Result<usize, DeqError> {
     match read {
         Ok(i) => Ok(i),
         Err(_) => Err(DeqError::Operation),
+    }
+}
+
+pub fn play(
+    r: Box<dyn io::Input + Send>,
+    w: Box<dyn io::Output + Send>,
+    dsp: Box<dyn io::Processor + Send>,
+    frame: usize,
+    rate: usize,
+) {
+    let (tx1, rx1) = sync_channel(0);
+    let (tx2, rx2) = sync_channel(0);
+    let (in_status_tx, status_rx) = sync_channel(0);
+    let dsp_status_tx = in_status_tx.clone();
+    let out_status_tx = in_status_tx.clone();
+
+    let _ = thread::spawn(move || {
+        r.run(tx1, in_status_tx).unwrap();
+    });
+    let _ = thread::spawn(move || {
+        dsp.run(rx1, tx2, dsp_status_tx).unwrap();
+    });
+    let _ = thread::spawn(move || {
+        w.run(rx2, out_status_tx).unwrap();
+    });
+
+    // show avg latency
+    let mut latency_avg = 0.0f64;
+    let avg_sec = 3;
+    let n = rate as u64 / frame as u64 * avg_sec;
+    let mut count: u64 = 0;
+    for s in status_rx {
+        match s {
+            io::Status::Latency(l) => {
+                latency_avg -= latency_avg / n as f64;
+                latency_avg += l as f64 / n as f64;
+                count += 1;
+                if count % n == 0 {
+                    log::info!(
+                        "filter latency ({}s avg): {:.3} ms | total frames: {}",
+                        avg_sec,
+                        latency_avg / 1000.0,
+                        count
+                    );
+                }
+            }
+            _ => {
+                log::trace!("{:?}", s)
+            }
+        }
     }
 }
 
@@ -122,14 +174,15 @@ pub fn start(pa: &pa::PortAudio) {
                         continue;
                     }
                     if let Ok(n) = read_str("file name> ") {
-                        let r = io::WaveReader::newb(&n, 1024);
-                        let w = io::PAWriter::newb(output_dev, 1024, 48000, 2);
-                        let rx = r.start().unwrap();
-                        w.start(rx).unwrap();
-                        // if let Err(e) = pautil::play_wav(pa, &n, output_dev) {
-                        //     log::error!("play wav err={}", e);
-                        //     process::exit(0);
-                        // }
+                        let frame = 1024;
+                        let rate = 48000;
+                        let ch = 2;
+                        let r =
+                            Box::new(io::WaveReader::new(&n, frame)) as Box<dyn io::Input + Send>;
+                        let w = Box::new(io::PAWriter::new(output_dev, frame, rate, ch))
+                            as Box<dyn io::Output + Send>;
+                        let dsp = Box::new(io::DSP {}) as Box<dyn io::Processor + Send>;
+                        play(r, w, dsp, frame, rate);
                     }
                 } else if cmd == 9 {
                     if input_dev == no_dev || output_dev == no_dev {
