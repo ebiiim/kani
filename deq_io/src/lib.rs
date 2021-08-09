@@ -51,7 +51,7 @@ pub enum Status {
     /// Processor sends filter latency (without IO latency).
     Latency(u32),
     /// Output inserted a frame to mitigate underrun.
-    Interpolation,
+    Interpolated,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -345,22 +345,28 @@ impl Output for PAWriter {
                 for (idx, sample) in buf.iter().enumerate() {
                     w[idx] = *sample;
                 }
-                status_tx.send(Status::RxAck).unwrap();
             });
-            if let Some(e) = e.err() {
-                status_tx.send(Status::RxErr).unwrap();
-                log::warn!("output stream err={}", e);
-                // probably "OutputUnderflowed" so insert a same frame
-                // this is audibly better than inserting a silent frame
-                stream
-                    .write(frame, |w| {
-                        assert_eq!(buf.len(), num_samples);
-                        for (idx, sample) in buf.iter().enumerate() {
-                            w[idx] = *sample;
-                        }
-                        status_tx.send(Status::Interpolation).unwrap();
-                    })
-                    .ok();
+            match e {
+                Ok(_) => {
+                    status_tx.send(Status::RxAck).unwrap();
+                }
+                Err(e) => {
+                    if format!("{}", e) == "OutputUnderflowed" {
+                        // insert a same frame is audibly better than inserting a silent frame
+                        stream
+                            .write(frame, |w| {
+                                assert_eq!(buf.len(), num_samples);
+                                for (idx, sample) in buf.iter().enumerate() {
+                                    w[idx] = *sample;
+                                }
+                                status_tx.send(Status::Interpolated).unwrap();
+                            })
+                            .ok();
+                    } else {
+                        status_tx.send(Status::RxErr).unwrap();
+                        log::warn!("output stream err={}", e);
+                    }
+                }
             }
         }
         if let Err(e) = stream.stop() {

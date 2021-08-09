@@ -103,6 +103,9 @@ pub fn play(
                     );
                 }
             }
+            io::Status::Interpolated => {
+                log::info!("Interpolated");
+            }
             _ => {
                 log::trace!("{:?}", s)
             }
