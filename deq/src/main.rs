@@ -7,7 +7,7 @@ extern crate deq_io;
 
 mod cli;
 mod err;
-mod pautil;
+// mod pautil;
 
 fn main() {
     // init logger

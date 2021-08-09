@@ -1,5 +1,4 @@
 use crate::err::DeqError;
-use crate::pautil;
 use deq_io as io;
 use portaudio as pa;
 use std::io::stdin;
@@ -8,30 +7,30 @@ use std::process;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
-fn print_devices(pa: &pa::PortAudio) -> Result<(), DeqError> {
-    let device_names = pautil::get_device_names(pa)?;
+fn print_devices(pa: &pa::PortAudio) -> Result<(), io::IOError> {
+    let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
         println!("{}\t{}", idx, name);
     });
     Ok(())
 }
 
-fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), DeqError> {
-    let devinfo = pautil::get_device_info(pa, idx)?;
+fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), io::IOError> {
+    let devinfo = io::get_device_info(pa, idx)?;
     println!("{:#?}", devinfo);
     Ok(())
 }
 
-fn get_default_device(pa: &pa::PortAudio) -> Result<usize, DeqError> {
+fn get_default_device(pa: &pa::PortAudio) -> Result<usize, io::IOError> {
     let mut dev = usize::MAX;
-    let device_names = pautil::get_device_names(pa)?;
+    let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
         if name == "default" {
             dev = *idx;
         }
     });
     if dev == usize::MAX {
-        Err(DeqError::Device)
+        Err(io::IOError::Device)
     } else {
         Ok(dev)
     }
@@ -148,7 +147,7 @@ pub fn start(pa: &pa::PortAudio) {
                     }
                 } else if cmd == 3 {
                     if let Ok(n) = read_int("input device> ") {
-                        if pautil::get_device_info(pa, n).is_ok() {
+                        if io::get_device_info(pa, n).is_ok() {
                             input_dev = n;
                         } else {
                             log::error!("could not find device id={}", n);
@@ -156,7 +155,7 @@ pub fn start(pa: &pa::PortAudio) {
                     }
                 } else if cmd == 4 {
                     if let Ok(n) = read_int("output device> ") {
-                        if pautil::get_device_info(pa, n).is_ok() {
+                        if io::get_device_info(pa, n).is_ok() {
                             output_dev = n;
                         } else {
                             log::error!("could not find device id={}", n);
@@ -194,10 +193,19 @@ pub fn start(pa: &pa::PortAudio) {
                         log::error!("please select devices first");
                         continue;
                     }
-                    if let Err(e) = pautil::play(pa, input_dev, output_dev) {
-                        log::error!("play err={}", e);
-                        process::exit(0);
-                    }
+                    let frame = 1024;
+                    let r = io::PAReader::new(input_dev, frame, 48000, 2);
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                    let w = io::PAWriter::new(
+                        output_dev,
+                        r.info().frame,
+                        r.info().rate,
+                        r.info().output_ch,
+                    );
+                    let r = Box::new(r) as Box<dyn io::Input + Send>;
+                    let w = Box::new(w) as Box<dyn io::Output + Send>;
+                    let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                    play(r, w, dsp);
                 } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);
