@@ -440,8 +440,8 @@ fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
     let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        Box::new(vf),
         VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 200.0, 4800.0)),
+        Box::new(vf),
     ];
     sfs
 }
@@ -470,13 +470,16 @@ fn apply_filters2(
     //     .iter_mut()
     //     .fold((l.to_vec(), r.to_vec()), |(l, r), f| f.apply(&l, &r));
 
-    let mut l = l.to_vec();
-    let mut r = r.to_vec();
     // compile error "destructuring assignments are unstable"
     // (l2, r2) = sfs[0].apply(&l, &r);
-    let (l2, r2) = sfs[0].apply(&l, &r);
-    l = l2;
-    r = r2;
+
+    let mut l = l.to_vec();
+    let mut r = r.to_vec();
+    for s in sfs {
+        let (l2, r2) = s.apply(&l, &r);
+        l = l2;
+        r = r2;
+    }
 
     assert_eq!(l.len(), r.len());
     assert_eq!(l.len(), debug);
