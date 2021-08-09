@@ -52,12 +52,22 @@ pub enum Status {
     Latency(u32),
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct Info {
+    pub frame: Frame,
+    pub rate: Rate,
+    pub input_ch: Ch,
+    pub output_ch: Ch,
+}
+
 pub trait Input {
     fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
+    fn info(&self) -> Info;
 }
 
 pub trait Output {
     fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
+    fn info(&self) -> Info;
 }
 
 pub trait Processor {
@@ -67,25 +77,50 @@ pub trait Processor {
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
     ) -> Result<(), IOError>;
+    fn info(&self) -> Info;
 }
 
 #[derive(Debug)]
 pub struct WaveReader {
-    frame: Frame,
+    info: Info,
     path: String,
 }
 
 impl WaveReader {
-    pub fn new(path: &str, frame: Frame) -> Self {
-        // TODO: open reader and check spec here
-        WaveReader {
-            frame,
-            path: String::from(path),
+    pub fn new(frame: Frame, path: &str) -> Result<Self, IOError> {
+        let r = hound::WavReader::open(path);
+        if let Err(e) = r {
+            log::error!("could not open wav err={}", e);
+            return Err(IOError::Format);
         }
+        let r = r.unwrap();
+        log::debug!("wav_info={:?}", r.spec());
+        if r.spec().sample_format != hound::SampleFormat::Int
+            || r.spec().bits_per_sample != 16
+            || r.spec().channels != 2
+        {
+            log::error!("wav must be 2ch pcm_s16le for now");
+            return Err(IOError::Format);
+        }
+        Ok(WaveReader {
+            info: Info {
+                frame,
+                rate: r.spec().sample_rate as Rate,
+                input_ch: 0,
+                output_ch: r.spec().channels as Ch,
+            },
+            path: String::from(path),
+        })
+    }
+    pub fn info(&self) -> Info {
+        self.info
     }
 }
 
 impl Input for WaveReader {
+    fn info(&self) -> Info {
+        self.info
+    }
     fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         let reader = hound::WavReader::open(&self.path);
         if let Err(e) = reader {
@@ -93,18 +128,11 @@ impl Input for WaveReader {
             return Err(IOError::Format);
         }
         let mut reader = reader.unwrap();
-        log::debug!("wav_info={:?}", reader.spec());
-        if reader.spec().sample_format != hound::SampleFormat::Int
-            || reader.spec().bits_per_sample != 16
-            || reader.spec().channels != 2
-        {
-            log::error!("wav must be 2ch pcm_s16le for now");
-            return Err(IOError::Format);
-        }
-        // TODO: read in play loop?
+
+        // TODO: read in play loop to reduce load time
         let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
-        let ch = 2;
-        let uframe = self.frame as usize * ch as usize;
+        let ch = self.info.output_ch;
+        let uframe = self.info.frame as usize * ch as usize;
         let mut buf = f::i16_to_f32(&buf);
         let zero_paddings = uframe - (buf.len() as usize % uframe);
         let zeros = vec![0.0; zero_paddings];
@@ -113,6 +141,7 @@ impl Input for WaveReader {
         let status_tx2 = status_tx.clone();
         let loopnum = buf.len() / uframe;
 
+        // no return error after TxInit/RxInit
         status_tx.send(Status::TxInit).unwrap();
 
         for i in 0..loopnum {
@@ -136,48 +165,55 @@ impl Input for WaveReader {
     }
 }
 
-#[derive(Debug)]
-pub struct WaveWriter {}
+// #[derive(Debug)]
+// pub struct WaveWriter {}
 
-impl WaveWriter {}
+// impl WaveWriter {}
 
-impl Output for WaveWriter {
-    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
-        unimplemented!();
-    }
-}
+// impl Output for WaveWriter {
+//     fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+//         unimplemented!();
+//     }
+// }
 
-#[derive(Debug)]
-pub struct PAReader {}
+// #[derive(Debug)]
+// pub struct PAReader {}
 
-impl PAReader {}
+// impl PAReader {}
 
-impl Input for PAReader {
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
-        unimplemented!();
-    }
-}
+// impl Input for PAReader {
+//     fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+//         unimplemented!();
+//     }
+// }
 
 #[derive(Debug)]
 pub struct PAWriter {
+    info: Info,
     dev: usize,
-    frame: Frame,
-    rate: Rate,
-    ch: Ch,
 }
 
 impl PAWriter {
     pub fn new(dev: usize, frame: Frame, rate: Rate, ch: Ch) -> Self {
         PAWriter {
+            info: Info {
+                frame,
+                rate,
+                input_ch: ch,
+                output_ch: 0,
+            },
             dev,
-            frame,
-            rate,
-            ch,
         }
+    }
+    pub fn info(&self) -> Info {
+        self.info
     }
 }
 
 impl Output for PAWriter {
+    fn info(&self) -> Info {
+        self.info
+    }
     fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
         let pa = pa::PortAudio::new();
         if pa.is_err() {
@@ -185,11 +221,11 @@ impl Output for PAWriter {
             return Err(IOError::Device);
         }
         let pa = pa.unwrap();
-        let ch = 2;
+        let ch = self.info.input_ch as i32;
         let interleaved = true;
-        let frame = self.frame as u32;
+        let frame = self.info.frame as u32;
         let player_info = get_device_info(&pa, self.dev)?;
-        let rate = self.rate as f64;
+        let rate = self.info.rate as f64;
         let latency = player_info.default_low_output_latency;
         let stream_params = pa::StreamParameters::<f32>::new(
             pa::DeviceIndex(self.dev as u32),
@@ -336,9 +372,30 @@ fn apply_filters2(
     (l, r)
 }
 
-pub struct DSP {}
+pub struct DSP {
+    info: Info,
+}
+
+impl DSP {
+    pub fn new(frame: Frame, rate: Rate) -> Self {
+        DSP {
+            info: Info {
+                frame,
+                rate,
+                input_ch: 2,
+                output_ch: 2,
+            },
+        }
+    }
+    pub fn info(&self) -> Info {
+        self.info
+    }
+}
 
 impl Processor for DSP {
+    fn info(&self) -> Info {
+        self.info
+    }
     fn run(
         &self,
         rx: Receiver<Vec<f32>>,
@@ -346,7 +403,7 @@ impl Processor for DSP {
         status_tx: SyncSender<Status>,
     ) -> Result<(), IOError> {
         // init filters
-        let fs = 48000.0;
+        let fs = self.info.rate as f32;
         let (mut lfs, mut rfs) = setup_filters(fs);
         let mut sfs = setup_filters2(fs);
 

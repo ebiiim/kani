@@ -64,14 +64,15 @@ pub fn play(
     r: Box<dyn io::Input + Send>,
     w: Box<dyn io::Output + Send>,
     dsp: Box<dyn io::Processor + Send>,
-    frame: usize,
-    rate: usize,
 ) {
     let (tx1, rx1) = sync_channel(0);
     let (tx2, rx2) = sync_channel(0);
     let (in_status_tx, status_rx) = sync_channel(0);
     let dsp_status_tx = in_status_tx.clone();
     let out_status_tx = in_status_tx.clone();
+
+    let frame = r.info().frame;
+    let rate = r.info().rate;
 
     let _ = thread::spawn(move || {
         r.run(tx1, in_status_tx).unwrap();
@@ -83,7 +84,7 @@ pub fn play(
         w.run(rx2, out_status_tx).unwrap();
     });
 
-    // show avg latency
+    // prepare avg latency
     let mut latency_avg = 0.0f64;
     let avg_sec = 3;
     let n = rate as u64 / frame as u64 * avg_sec;
@@ -175,14 +176,18 @@ pub fn start(pa: &pa::PortAudio) {
                     }
                     if let Ok(n) = read_str("file name> ") {
                         let frame = 1024;
-                        let rate = 48000;
-                        let ch = 2;
-                        let r =
-                            Box::new(io::WaveReader::new(&n, frame)) as Box<dyn io::Input + Send>;
-                        let w = Box::new(io::PAWriter::new(output_dev, frame, rate, ch))
-                            as Box<dyn io::Output + Send>;
-                        let dsp = Box::new(io::DSP {}) as Box<dyn io::Processor + Send>;
-                        play(r, w, dsp, frame, rate);
+                        let r = io::WaveReader::new(frame, &n).unwrap();
+                        let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                        let w = io::PAWriter::new(
+                            output_dev,
+                            r.info().frame,
+                            r.info().rate,
+                            r.info().output_ch,
+                        );
+                        let r = Box::new(r) as Box<dyn io::Input + Send>;
+                        let w = Box::new(w) as Box<dyn io::Output + Send>;
+                        let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                        play(r, w, dsp);
                     }
                 } else if cmd == 9 {
                     if input_dev == no_dev || output_dev == no_dev {
