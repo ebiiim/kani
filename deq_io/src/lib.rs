@@ -50,6 +50,8 @@ pub enum Status {
     /// Input and Output do not send latency for now,
     /// Processor sends filter latency (without IO latency).
     Latency(u32),
+    /// Output inserted a frame to mitigate underrun.
+    Interpolation,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -254,20 +256,32 @@ impl Output for PAWriter {
         status_tx.send(Status::RxInit).unwrap();
 
         for buf in rx {
-            if let Err(e) = stream.write(frame, |w| {
+            let e = stream.write(frame, |w| {
                 assert_eq!(buf.len(), num_samples);
                 for (idx, sample) in buf.iter().enumerate() {
                     w[idx] = *sample;
                 }
-            }) {
+                status_tx.send(Status::RxAck).unwrap();
+            });
+            if let Some(e) = e.err() {
                 status_tx.send(Status::RxErr).unwrap();
-                log::warn!("playback stream err={}", e);
-            };
+                log::warn!("output stream err={}", e);
+                // probably "OutputUnderflowed" so insert a same frame
+                // this is audibly better than inserting a silent frame
+                stream
+                    .write(frame, |w| {
+                        assert_eq!(buf.len(), num_samples);
+                        for (idx, sample) in buf.iter().enumerate() {
+                            w[idx] = *sample;
+                        }
+                        status_tx.send(Status::Interpolation).unwrap();
+                    })
+                    .ok();
+            }
         }
-
         if let Err(e) = stream.stop() {
             status_tx.send(Status::RxErr).unwrap();
-            log::warn!("could not stop playback stream err={}", e);
+            log::warn!("could not stop output stream err={}", e);
         }
 
         status_tx.send(Status::RxFin).unwrap();
