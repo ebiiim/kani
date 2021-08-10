@@ -7,6 +7,8 @@ use std::process;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
+const NO_DEV: usize = usize::MAX;
+
 fn print_devices(pa: &pa::PortAudio) -> Result<(), io::IOError> {
     let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
@@ -21,19 +23,46 @@ fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), io::IOError> 
     Ok(())
 }
 
-fn get_default_device(pa: &pa::PortAudio) -> Result<usize, io::IOError> {
-    let mut dev = usize::MAX;
+fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize, io::IOError> {
+    let mut dev = NO_DEV;
     let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
-        if name == "default" {
+        if name == n {
             dev = *idx;
         }
     });
-    if dev == usize::MAX {
+    if dev == NO_DEV {
         Err(io::IOError::Device)
     } else {
         Ok(dev)
     }
+}
+
+fn get_default_devices(pa: &pa::PortAudio) -> (usize, usize) {
+    let (mut input_dev, mut output_dev) = (NO_DEV, NO_DEV);
+
+    #[cfg(target_os = "linux")]
+    if let Ok(dev) = get_device_by_name(pa, "default") {
+        input_dev = dev;
+        output_dev = dev;
+    } else {
+        log::error!("could not find device \"default\"");
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Ok(dev) = get_device_by_name(pa, "Microsoft Sound Mapper - Input") {
+        input_dev = dev;
+    } else {
+        log::error!("could not find device \"Microsoft Sound Mapper - Input\"");
+    }
+    #[cfg(target_os = "windows")]
+    if let Ok(dev) = get_device_by_name(pa, "Microsoft Sound Mapper - Output") {
+        output_dev = dev;
+    } else {
+        log::error!("could not find device \"Microsoft Sound Mapper - Output\"");
+    }
+
+    (input_dev, output_dev)
 }
 
 fn read_str(s: &str) -> Result<String, DeqError> {
@@ -116,16 +145,22 @@ pub fn play(
 pub fn start(pa: &pa::PortAudio) {
     let term_clear = || print!("\x1B[2J");
     let term_left_top = || print!("\x1B[1;1H");
-    let no_dev = 1 << 31;
 
-    let mut input_dev = no_dev;
-    let mut output_dev = no_dev;
+    let mut input_dev = usize::MAX;
+    let mut output_dev = usize::MAX;
 
     term_clear();
     term_left_top();
 
     loop {
-        let cmd = read_int("[1]all devices [2]show details\n[3]input device [4]output device [5]use defaults\n[8]play wav [9]play\n[0]quit\n>");
+        let cmd = read_int(
+            "[1]list all devices [2]show device info
+[3]select input device [4]select output device [5]use defaults (Linux|Windows)
+[8]play (wav->DSP->output)
+[9]play (input->DSP->output)
+[0]quit
+>",
+        );
         match cmd {
             Err(_) => {
                 continue;
@@ -165,14 +200,11 @@ pub fn start(pa: &pa::PortAudio) {
                         }
                     }
                 } else if cmd == 5 {
-                    if let Ok(dev) = get_default_device(pa) {
-                        input_dev = dev;
-                        output_dev = dev;
-                    } else {
-                        log::error!("could not find default device");
-                    }
+                    let (indev, outdev) = get_default_devices(pa);
+                    input_dev = indev;
+                    output_dev = outdev;
                 } else if cmd == 8 {
-                    if output_dev == no_dev {
+                    if output_dev == NO_DEV {
                         log::error!("please select output device first");
                         continue;
                     }
@@ -192,7 +224,7 @@ pub fn start(pa: &pa::PortAudio) {
                         play(r, w, dsp);
                     }
                 } else if cmd == 9 {
-                    if input_dev == no_dev || output_dev == no_dev {
+                    if input_dev == NO_DEV || output_dev == NO_DEV {
                         log::error!("please select devices first");
                         continue;
                     }
