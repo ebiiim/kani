@@ -8,8 +8,12 @@ use deq_filter::{Volume, VolumeCurve};
 use portaudio as pa;
 use std::error;
 use std::fmt;
+use std::io::prelude::*;
+use std::process::{Command, Stdio};
+use std::slice;
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::time;
+
 extern crate deq_filter;
 
 #[derive(Debug)]
@@ -380,6 +384,98 @@ impl Output for PAWriter {
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub struct PipeReader {
+    info: Info,
+    cmd: String,
+    args: String,
+}
+
+impl PipeReader {
+    pub fn new(cmd: &str, args: &str, frame: Frame, rate: Rate, ch: Ch) -> Self {
+        PipeReader {
+            info: Info {
+                frame,
+                rate,
+                input_ch: 0,
+                output_ch: ch,
+            },
+            cmd: String::from(cmd),
+            args: String::from(args),
+        }
+    }
+    pub fn info(&self) -> Info {
+        self.info
+    }
+}
+
+impl Input for PipeReader {
+    fn info(&self) -> Info {
+        self.info
+    }
+    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+        let args: Vec<&str> = self.args.split(' ').collect();
+
+        let mut process = match Command::new(&self.cmd)
+            .args(args)
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Err(e) => {
+                log::error!("could not spawn process cmd={} err={}", &self.cmd, e);
+                return Err(IOError::Device);
+            }
+            Ok(process) => process,
+        };
+
+        status_tx.send(Status::TxInit).unwrap();
+
+        let buflen = self.info.frame * self.info.output_ch * 2;
+        let mut buf = vec![0; buflen];
+        let mut o = process.stdout.take().unwrap();
+        loop {
+            match o.read(&mut buf) {
+                Ok(n) => {
+                    if n != buflen {
+                        // zero padding
+                        for idx in 0..(buflen - n) {
+                            buf[buflen - idx - 1] = 0;
+                        }
+                        log::trace!("read {} bytes from pipe", n);
+                        let data = f::i16_to_f32(&u8_to_i16_le(&mut buf).to_vec());
+                        tx.send(data).unwrap();
+                        status_tx.send(Status::TxAck).unwrap();
+
+                        // librespot closes pipe in every pause so no break here
+                        // TODO: no way to end
+                        // log::debug!("pipe ended");
+                        // break;
+                    } else {
+                        // buf.read
+                        log::trace!("read {} bytes from pipe", n);
+                        let data = f::i16_to_f32(&u8_to_i16_le(&mut buf).to_vec());
+                        tx.send(data).unwrap();
+                        status_tx.send(Status::TxAck).unwrap();
+                    };
+                }
+                Err(e) => {
+                    status_tx.send(Status::TxErr).unwrap();
+                    log::debug!("read pipe err={:?}", e);
+                }
+            }
+        }
+
+        status_tx.send(Status::TxFin).unwrap();
+
+        Ok(())
+    }
+}
+
+fn u8_to_i16_le(b: &mut [u8]) -> &mut [i16] {
+    assert_eq!(b.len() % 2, 0);
+    unsafe { slice::from_raw_parts_mut(b.as_mut_ptr() as *mut i16, b.len() / 2) }
 }
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, IOError> {

@@ -7,6 +7,10 @@ use std::process;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
+#[cfg(target_os = "windows")]
+const PATH_LIBRESPOT: &str = "librespot.exe";
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const PATH_LIBRESPOT: &str = "./librespot";
 const NO_DEV: usize = usize::MAX;
 const FRAME: usize = 1024;
 
@@ -157,8 +161,9 @@ pub fn start(pa: &pa::PortAudio) {
         let cmd = read_int(
             "[1]list all devices [2]show device info
 [3]select input device [4]select output device [5]use defaults (Linux|Windows)
-[8]play (wav->DSP->output)
-[9]play (input->DSP->output)
+[7]play {Spotify->DSP->Output} (requires: librespot binary in current dir)
+[8]play {WAVE->DSP->Output}
+[9]play {Input->DSP->Output}
 [0]quit
 >",
         );
@@ -207,6 +212,29 @@ pub fn start(pa: &pa::PortAudio) {
                     input_dev = indev;
                     output_dev = outdev;
                     log::debug!("input_dev={}, output_dev={}", input_dev, output_dev);
+                } else if cmd == 7 {
+                    if output_dev == NO_DEV {
+                        log::error!("please select output device first");
+                        continue;
+                    }
+                    let r = io::PipeReader::new(
+                        PATH_LIBRESPOT,
+                        "-n DEQ(Librespot) -b 320 --backend pipe",
+                        FRAME,
+                        44100,
+                        2,
+                    );
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                    let w = io::PAWriter::new(
+                        output_dev,
+                        r.info().frame,
+                        r.info().rate,
+                        r.info().output_ch,
+                    );
+                    let r = Box::new(r) as Box<dyn io::Input + Send>;
+                    let w = Box::new(w) as Box<dyn io::Output + Send>;
+                    let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                    play(r, w, dsp);
                 } else if cmd == 8 {
                     if output_dev == NO_DEV {
                         log::error!("please select output device first");

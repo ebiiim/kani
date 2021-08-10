@@ -1,2 +1,7 @@
 /target
 /.vscode
+
+# dependencies
+# .exe, .dll, etc...
+librespot*
+portaudio*

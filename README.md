@@ -32,8 +32,8 @@ A toy audio processor I made in my holidays just for fun :D
 - Input / Output
     - [x] Audio Interfaces (using PortAudio, ~200ms latency)
     - [x] Files (currently 2ch 16bit WAVE only)
-    - [ ] Spotify Connect
-    - [ ] Pipe
+    - [x] Pipe
+    - [x] Spotify Connect (using librespot & pipe)
 - User Interfaces
     - [x] CLI (minimal one)
     - [ ] Config (Import / Export)
