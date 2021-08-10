@@ -464,7 +464,7 @@ impl VocalRemover {
     const RL: f32 = 0.707;
     const RH: f32 = 1.0 / Self::RL;
     const P: BQFParam = BQFParam::Q(0.707);
-    const VOL: f32 = -9.0;
+    const VOL: f32 = -3.0;
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
         match vrtype {
