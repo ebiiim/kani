@@ -10,7 +10,7 @@ use std::thread;
 #[cfg(target_os = "windows")]
 const PATH_LIBRESPOT: &str = "librespot.exe";
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-const PATH_LIBRESPOT: &str = "./librespot";
+const PATH_LIBRESPOT: &str = "librespot";
 const NO_DEV: usize = usize::MAX;
 const FRAME: usize = 1024;
 

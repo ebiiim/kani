@@ -43,9 +43,12 @@ A toy audio processor I made in my holidays just for fun :D
     - [x] Linux
     - [x] macOS
 
-## Setup
+## Build
 
-Prerequisites: PortAudio
+### Prerequisites
+
+[PortAudio](http://www.portaudio.com/)
+
 ```sh
 # Linux
 sudo apt install portaudio19-dev
@@ -55,7 +58,17 @@ brew install portaudio
 .\vcpkg install portaudio
 ```
 
-Build
+[librespot](https://github.com/librespot-org/librespot)
+
+```sh
+# Linux only
+sudo apt-get install build-essential libasound2-dev
+# All platforms
+cargo install librespot
 ```
+
+### Compile
+
+```sh
 cargo build --release
 ```
