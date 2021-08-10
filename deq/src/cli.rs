@@ -8,6 +8,7 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 
 const NO_DEV: usize = usize::MAX;
+const FRAME: usize = 1024;
 
 fn print_devices(pa: &pa::PortAudio) -> Result<(), io::IOError> {
     let device_names = io::get_device_names(pa)?;
@@ -212,7 +213,7 @@ pub fn start(pa: &pa::PortAudio) {
                         continue;
                     }
                     if let Ok(n) = read_str("file name> ") {
-                        let frame = 1024;
+                        let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
                         let dsp = io::DSP::new(r.info().frame, r.info().rate);
                         let w = io::PAWriter::new(
@@ -231,7 +232,7 @@ pub fn start(pa: &pa::PortAudio) {
                         log::error!("please select devices first");
                         continue;
                     }
-                    let frame = 1024;
+                    let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
                     let dsp = io::DSP::new(r.info().frame, r.info().rate);
                     let w = io::PAWriter::new(
