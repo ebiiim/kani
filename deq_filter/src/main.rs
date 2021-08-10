@@ -30,20 +30,24 @@ fn run_dump_ir_vocal_remover() {
     let len = f::nextpow2(FS);
     let a = f::generate_impulse(len);
 
-    const r1: f32 = 0.755428370777;
-    const r2: f32 = 1.313019052859;
-    let f1 = 440.0;
+    // find values that can obtain flat frequency response
+    let q = BQFParam::Q(0.707);
+    let r1 = 1.414;
+    // let q = BQFParam::Q(1.414);
+    // let r1 = 0.882; // better than 0.707
+    let r2 = 1.0 / r1;
+    let f1 = 200.0;
     let f11 = f1 * r1;
     let f12 = f1 * r2;
-    let f2 = 6600.0;
-    let mut f21 = f2 * r1;
-    let mut f22 = f2 * r2;
+    let f2 = 5400.0;
+    let f21 = f2 * r1;
+    let f22 = f2 * r2;
 
-    let l = BiquadFilter::newb(BQFType::LowPass, FS, f11, 0.0, BQFParam::BW(1.0)).apply(&a);
-    let h = BiquadFilter::newb(BQFType::HighPass, FS, f22, 0.0, BQFParam::BW(1.0)).apply(&a);
+    let l = BiquadFilter::newb(BQFType::LowPass, FS, f11, 0.0, q).apply(&a);
+    let h = BiquadFilter::newb(BQFType::HighPass, FS, f22, 0.0, q).apply(&a);
 
-    let x = BiquadFilter::newb(BQFType::HighPass, FS, f12, 0.0, BQFParam::BW(1.0)).apply(&a);
-    let x = BiquadFilter::newb(BQFType::LowPass, FS, f21, 0.0, BQFParam::BW(1.0)).apply(&x);
+    let x = BiquadFilter::newb(BQFType::HighPass, FS, f12, 0.0, q).apply(&a);
+    let x = BiquadFilter::newb(BQFType::LowPass, FS, f21, 0.0, q).apply(&x);
     let x = Volume::newb(VolumeCurve::Gain, 0.0).apply(&x);
 
     let mut out = Vec::with_capacity(len);

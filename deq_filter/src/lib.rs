@@ -459,12 +459,9 @@ pub struct VocalRemover {
 }
 
 impl VocalRemover {
-    // filter rate from http://www.asahi-net.or.jp/~ab6s-med/NORTH/SP/netwark.htm
-    #[allow(clippy::excessive_precision)]
-    const RL: f32 = 0.755428370777;
-    #[allow(clippy::excessive_precision)]
-    const RH: f32 = 1.313019052859;
-    const P: BQFParam = BQFParam::BW(1.0);
+    const RL: f32 = 0.707;
+    const RH: f32 = 1.0 / Self::RL;
+    const P: BQFParam = BQFParam::Q(0.707);
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
         match vrtype {
