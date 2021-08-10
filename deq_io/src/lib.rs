@@ -442,10 +442,10 @@ fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
         // Volume::new(VolumeCurve::Gain, -6.0),
     );
     let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
+        Box::new(pf),
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 280.0, 4400.0)),
-        Box::new(pf),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 340.0, 4800.0)),
     ];
     sfs
 }

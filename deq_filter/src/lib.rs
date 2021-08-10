@@ -448,6 +448,8 @@ pub enum VocalRemoverType {
 #[derive(Debug)]
 pub struct VocalRemover {
     vrtype: VocalRemoverType,
+    lv: Volume,
+    rv: Volume,
     ll: BiquadFilter,
     llx: BiquadFilter,
     lh: BiquadFilter,
@@ -462,10 +464,13 @@ impl VocalRemover {
     const RL: f32 = 0.707;
     const RH: f32 = 1.0 / Self::RL;
     const P: BQFParam = BQFParam::Q(0.707);
+    const VOL: f32 = -9.0;
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
         match vrtype {
             VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
+                let lv = Volume::new(VolumeCurve::Gain, Self::VOL);
+                let rv = Volume::new(VolumeCurve::Gain, Self::VOL);
                 let ll = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
                 let llx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
                 let lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
@@ -476,6 +481,8 @@ impl VocalRemover {
                 let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
                 Self {
                     vrtype,
+                    lv,
+                    rv,
                     ll,
                     llx,
                     lh,
@@ -487,6 +494,8 @@ impl VocalRemover {
                 }
             }
             _ => {
+                let lv = Volume::new(VolumeCurve::Gain, 0.0);
+                let rv = Volume::new(VolumeCurve::Gain, 0.0);
                 let ll = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let llx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let lh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
@@ -497,6 +506,8 @@ impl VocalRemover {
                 let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 Self {
                     vrtype,
+                    lv,
+                    rv,
                     ll,
                     llx,
                     lh,
@@ -522,20 +533,30 @@ impl Filter2ch for VocalRemover {
                 (lr.clone(), lr)
             }
             VocalRemoverType::RemoveCenterBW(_, _, _) => {
-                let ll = self.ll.apply(l); // low (L ch)
-                let lh = self.lh.apply(l); // high (L ch)
-                let rl = self.rl.apply(r); // low (R ch)
-                let rh = self.rh.apply(r); // high (R ch)
-                let lm = self.lhx.apply(&self.llx.apply(l)); // mid (L ch)
-                let rm = self.rhx.apply(&self.rlx.apply(r)); // mid (R ch)
+                //
+                let mut l = self.lv.apply(l);
+                let mut r = self.rv.apply(r);
+
+                let ll = self.ll.apply(&l); // low (L ch)
+                let lh = self.lh.apply(&l); // high (L ch)
+                let rl = self.rl.apply(&r); // low (R ch)
+                let rh = self.rh.apply(&r); // high (R ch)
+                let lm = self.lhx.apply(&self.llx.apply(&l)); // mid (L ch)
+                let rm = self.rhx.apply(&self.rlx.apply(&r)); // mid (R ch)
                 let center: Vec<f32> = lm.iter().zip(&rm).map(|(l, r)| l - r).collect(); // mid (L-R)
 
                 let len = l.len();
                 let mut lo = Vec::with_capacity(len); // output (L ch)
                 let mut ro = Vec::with_capacity(len); // output (R ch)
                 for i in 0..len {
-                    lo.push(ll[i] + center[i] + lh[i]);
-                    ro.push(rl[i] + center[i] + rh[i]);
+                    let lsum = ll[i] + center[i] + lh[i];
+                    let rsum = rl[i] + center[i] + rh[i];
+                    #[cfg(debug_assertions)]
+                    if lsum.abs() > 1.0 || rsum.abs() > 1.0 {
+                        log::warn!("clipping detected l={} r={}", lsum, rsum);
+                    }
+                    lo.push(lsum);
+                    ro.push(rsum);
                 }
                 (lo, ro)
             }
