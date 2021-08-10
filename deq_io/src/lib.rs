@@ -444,7 +444,7 @@ impl Input for PipeReader {
                             buf[buflen - idx - 1] = 0;
                         }
                         log::trace!("read {} bytes from pipe", n);
-                        let data = f::i16_to_f32(&u8_to_i16_le(&mut buf).to_vec());
+                        let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         tx.send(data).unwrap();
                         status_tx.send(Status::TxAck).unwrap();
 
@@ -455,7 +455,7 @@ impl Input for PipeReader {
                     } else {
                         // buf.read
                         log::trace!("read {} bytes from pipe", n);
-                        let data = f::i16_to_f32(&u8_to_i16_le(&mut buf).to_vec());
+                        let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         tx.send(data).unwrap();
                         status_tx.send(Status::TxAck).unwrap();
                     };
@@ -473,9 +473,10 @@ impl Input for PipeReader {
     }
 }
 
-fn u8_to_i16_le(b: &mut [u8]) -> &mut [i16] {
+/// Note: I don't know how this works on big-endian machines.
+fn reinterpret_u8_to_i16(b: &mut [u8]) -> &[i16] {
     assert_eq!(b.len() % 2, 0);
-    unsafe { slice::from_raw_parts_mut(b.as_mut_ptr() as *mut i16, b.len() / 2) }
+    unsafe { slice::from_raw_parts(b.as_mut_ptr() as *const i16, b.len() / 2) }
 }
 
 pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, IOError> {
