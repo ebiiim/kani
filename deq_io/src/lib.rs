@@ -224,6 +224,7 @@ impl Input for PAReader {
             interleaved,
             latency,
         );
+        log::debug!("use params={:?} rate={}", stream_params, rate);
         if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
             log::error!("format not supported err={}", e);
             return Err(IOError::Format);
@@ -319,6 +320,7 @@ impl Output for PAWriter {
             interleaved,
             latency,
         );
+        log::debug!("use params={:?} rate={}", stream_params, rate);
         if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
             log::error!("format not supported err={}", e);
             return Err(IOError::Format);

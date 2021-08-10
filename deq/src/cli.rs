@@ -191,6 +191,7 @@ pub fn start(pa: &pa::PortAudio) {
                             log::error!("could not find device id={}", n);
                         }
                     }
+                    log::debug!("input_dev={}, output_dev={}", input_dev, output_dev);
                 } else if cmd == 4 {
                     if let Ok(n) = read_int("output device> ") {
                         if io::get_device_info(pa, n).is_ok() {
@@ -199,10 +200,12 @@ pub fn start(pa: &pa::PortAudio) {
                             log::error!("could not find device id={}", n);
                         }
                     }
+                    log::debug!("input_dev={}, output_dev={}", input_dev, output_dev);
                 } else if cmd == 5 {
                     let (indev, outdev) = get_default_devices(pa);
                     input_dev = indev;
                     output_dev = outdev;
+                    log::debug!("input_dev={}, output_dev={}", input_dev, output_dev);
                 } else if cmd == 8 {
                     if output_dev == NO_DEV {
                         log::error!("please select output device first");
