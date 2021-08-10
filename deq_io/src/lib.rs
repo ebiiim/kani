@@ -225,8 +225,8 @@ impl Input for PAReader {
             latency,
         );
         log::debug!("use params={:?} rate={}", stream_params, rate);
-        if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
-            log::error!("format not supported err={}", e);
+        if let Err(e) = pa.is_input_format_supported(stream_params, rate) {
+            log::error!("input format not supported err={}", e);
             return Err(IOError::Format);
         }
         let settings = pa::InputStreamSettings::new(stream_params, rate, frame);
@@ -322,7 +322,7 @@ impl Output for PAWriter {
         );
         log::debug!("use params={:?} rate={}", stream_params, rate);
         if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
-            log::error!("format not supported err={}", e);
+            log::error!("output format not supported err={}", e);
             return Err(IOError::Format);
         }
         let settings = pa::OutputStreamSettings::new(stream_params, rate, frame);
