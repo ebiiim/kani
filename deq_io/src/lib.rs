@@ -446,19 +446,30 @@ impl Input for PipeReader {
             match o.read(&mut buf) {
                 Ok(n) => {
                     if n != buflen {
-                        // zero padding
-                        for idx in 0..(buflen - n) {
-                            buf[buflen - idx - 1] = 0;
-                        }
-                        log::trace!("read {} bytes from pipe", n);
-                        let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
-                        tx.send(data).unwrap();
-                        status_tx.send(Status::TxAck(IO::Input)).unwrap();
+                        // Spotify Connect
+                        // ignore all small data to avoid noise
+                        // TODO: do this in e.g., SpotifyReader
+                        continue;
 
-                        // librespot closes pipe in every pause so no break here
-                        // TODO: no way to end
-                        // log::debug!("pipe ended");
-                        // break;
+                        // // ignore weird size inputs
+                        // // ch x 2byte
+                        // if n % self.info.output_ch * 2 != 0 {
+                        //     log::warn!("ignored {} bytes of data from pipe", n);
+                        //     continue;
+                        // }
+                        // // zero padding
+                        // for idx in 0..(buflen - n) {
+                        //     buf[buflen - idx - 1] = 0;
+                        // }
+                        // log::trace!("read {} bytes from pipe", n);
+                        // let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
+                        // tx.send(data).unwrap();
+                        // status_tx.send(Status::TxAck(IO::Input)).unwrap();
+
+                        // // librespot closes pipe in every pause so no break here
+                        // // TODO: no way to end
+                        // // log::debug!("pipe ended");
+                        // // break;
                     } else {
                         // buf.read
                         log::trace!("read {} bytes from pipe", n);
