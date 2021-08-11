@@ -6,6 +6,7 @@ edition = "2018"
 description = "Digital equalizer application"
 repository = "https://github.com/ebiiim/deq"
 license = "MIT"
+default-run = "deq"
 
 [dependencies.deq_filter]
 path = "../deq_filter"

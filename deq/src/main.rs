@@ -1,4 +1,5 @@
 use deq_io as io;
+use io::Status::*;
 use portaudio as pa;
 use std::env;
 use std::io::{stdin, stdout, Write};
@@ -140,12 +141,13 @@ pub fn play(
 
     // prepare avg latency
     let mut latency_avg = 0.0f64;
-    let avg_sec = 3;
+    let avg_sec = 10;
     let n = rate as u64 / frame as u64 * avg_sec;
     let mut count: u64 = 0;
     for s in status_rx {
         match s {
-            io::Status::Latency(l) => {
+            // check io::Status::*
+            Latency(l) => {
                 latency_avg -= latency_avg / n as f64;
                 latency_avg += l as f64 / n as f64;
                 count += 1;
@@ -158,8 +160,14 @@ pub fn play(
                     );
                 }
             }
-            io::Status::Interpolated => {
-                log::info!("Interpolated");
+            Interpolated(_) => {
+                log::info!("{:?}", s);
+            }
+            TxInit(_) | RxInit(_) => {
+                log::info!("{:?}", s)
+            }
+            TxErr(_) | RxErr(_) => {
+                log::warn!("{:?}", s)
             }
             _ => {
                 log::trace!("{:?}", s)

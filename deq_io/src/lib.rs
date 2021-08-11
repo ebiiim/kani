@@ -40,22 +40,29 @@ type Bit = usize;
 type Ch = usize;
 
 #[derive(Debug)]
+pub enum IO {
+    Input,
+    Output,
+    Processor,
+}
+
+#[derive(Debug)]
 pub enum Status {
-    TxInit,
-    TxAck,
-    TxFin,
-    TxErr,
-    RxInit,
-    RxAck,
-    RxFin,
-    RxErr,
+    TxInit(IO),
+    TxAck(IO),
+    TxFin(IO),
+    TxErr(IO),
+    RxInit(IO),
+    RxAck(IO),
+    RxFin(IO),
+    RxErr(IO),
     /// Latency in microseconds.
     ///
     /// Input and Output do not send latency for now,
     /// Processor sends filter latency (without IO latency).
     Latency(u32),
     /// Output inserted a frame to mitigate underrun.
-    Interpolated,
+    Interpolated(IO),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -148,7 +155,7 @@ impl Input for WaveReader {
         let loopnum = buf.len() / uframe;
 
         // no return error after TxInit/RxInit
-        status_tx.send(Status::TxInit).unwrap();
+        status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
         for i in 0..loopnum {
             let a = i * uframe;
@@ -157,16 +164,16 @@ impl Input for WaveReader {
             assert_eq!(buf.len(), uframe);
             match tx.send(buf) {
                 Ok(_) => {
-                    status_tx2.send(Status::TxAck).unwrap();
+                    status_tx2.send(Status::TxAck(IO::Input)).unwrap();
                 }
                 Err(e) => {
-                    status_tx2.send(Status::TxErr).unwrap();
+                    status_tx2.send(Status::TxErr(IO::Input)).unwrap();
                     log::error!("{}", e);
                 }
             }
         }
 
-        status_tx2.send(Status::TxFin).unwrap();
+        status_tx2.send(Status::TxFin(IO::Input)).unwrap();
         Ok(())
     }
 }
@@ -246,21 +253,21 @@ impl Input for PAReader {
         }
         log::debug!("stream started info={:?}", stream.info());
 
-        status_tx.send(Status::TxInit).unwrap();
+        status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
         loop {
             match stream.read(frame) {
                 Ok(b) => match tx.send(b.to_vec()) {
                     Ok(_) => {
-                        status_tx.send(Status::TxAck).unwrap();
+                        status_tx.send(Status::TxAck(IO::Input)).unwrap();
                     }
                     Err(e) => {
-                        status_tx.send(Status::TxErr).unwrap();
+                        status_tx.send(Status::TxErr(IO::Input)).unwrap();
                         log::warn!("TxErr err={}", e);
                     }
                 },
                 Err(e) => {
-                    status_tx.send(Status::TxErr).unwrap();
+                    status_tx.send(Status::TxErr(IO::Input)).unwrap();
                     log::warn!("TxErr err={}", e);
                 }
             }
@@ -268,11 +275,11 @@ impl Input for PAReader {
 
         // TODO: how to stop this?
         if let Err(e) = stream.stop() {
-            status_tx.send(Status::TxErr).unwrap();
+            status_tx.send(Status::TxErr(IO::Input)).unwrap();
             log::warn!("could not stop input stream err={}", e);
         }
 
-        status_tx.send(Status::TxFin).unwrap();
+        status_tx.send(Status::TxFin(IO::Input)).unwrap();
 
         Ok(())
     }
@@ -343,7 +350,7 @@ impl Output for PAWriter {
         log::debug!("stream started info={:?}", stream.info());
         let num_samples = (frame * ch as u32) as usize;
 
-        status_tx.send(Status::RxInit).unwrap();
+        status_tx.send(Status::RxInit(IO::Output)).unwrap();
 
         for buf in rx {
             let e = stream.write(frame, |w| {
@@ -354,7 +361,7 @@ impl Output for PAWriter {
             });
             match e {
                 Ok(_) => {
-                    status_tx.send(Status::RxAck).unwrap();
+                    status_tx.send(Status::RxAck(IO::Output)).unwrap();
                 }
                 Err(e) => {
                     if format!("{}", e) == "OutputUnderflowed" {
@@ -365,22 +372,22 @@ impl Output for PAWriter {
                                 for (idx, sample) in buf.iter().enumerate() {
                                     w[idx] = *sample;
                                 }
-                                status_tx.send(Status::Interpolated).unwrap();
+                                status_tx.send(Status::Interpolated(IO::Output)).unwrap();
                             })
                             .ok();
                     } else {
-                        status_tx.send(Status::RxErr).unwrap();
+                        status_tx.send(Status::RxErr(IO::Output)).unwrap();
                         log::warn!("output stream err={}", e);
                     }
                 }
             }
         }
         if let Err(e) = stream.stop() {
-            status_tx.send(Status::RxErr).unwrap();
+            status_tx.send(Status::RxErr(IO::Output)).unwrap();
             log::warn!("could not stop output stream err={}", e);
         }
 
-        status_tx.send(Status::RxFin).unwrap();
+        status_tx.send(Status::RxFin(IO::Output)).unwrap();
 
         Ok(())
     }
@@ -430,7 +437,7 @@ impl Input for PipeReader {
             Ok(process) => process,
         };
 
-        status_tx.send(Status::TxInit).unwrap();
+        status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
         let buflen = self.info.frame * self.info.output_ch * 2;
         let mut buf = vec![0; buflen];
@@ -446,7 +453,7 @@ impl Input for PipeReader {
                         log::trace!("read {} bytes from pipe", n);
                         let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         tx.send(data).unwrap();
-                        status_tx.send(Status::TxAck).unwrap();
+                        status_tx.send(Status::TxAck(IO::Input)).unwrap();
 
                         // librespot closes pipe in every pause so no break here
                         // TODO: no way to end
@@ -457,17 +464,17 @@ impl Input for PipeReader {
                         log::trace!("read {} bytes from pipe", n);
                         let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         tx.send(data).unwrap();
-                        status_tx.send(Status::TxAck).unwrap();
+                        status_tx.send(Status::TxAck(IO::Input)).unwrap();
                     };
                 }
                 Err(e) => {
-                    status_tx.send(Status::TxErr).unwrap();
+                    status_tx.send(Status::TxErr(IO::Input)).unwrap();
                     log::debug!("read pipe err={:?}", e);
                 }
             }
         }
 
-        status_tx.send(Status::TxFin).unwrap();
+        status_tx.send(Status::TxFin(IO::Input)).unwrap();
 
         Ok(())
     }
@@ -622,11 +629,11 @@ impl Processor for DSP {
         let (mut lfs, mut rfs) = setup_filters(fs);
         let mut sfs = setup_filters2(fs);
 
-        status_tx.send(Status::RxInit).unwrap();
-        status_tx.send(Status::TxInit).unwrap();
+        status_tx.send(Status::RxInit(IO::Processor)).unwrap();
+        status_tx.send(Status::TxInit(IO::Processor)).unwrap();
 
         for buf in rx {
-            status_tx.send(Status::RxAck).unwrap();
+            status_tx.send(Status::RxAck(IO::Processor)).unwrap();
             let start = time::Instant::now();
             // --- measure latency ---
             let (l, r) = f::from_interleaved(&buf);
@@ -638,16 +645,16 @@ impl Processor for DSP {
             status_tx.send(Status::Latency(end.as_micros() as u32)).ok();
             match tx.send(buf) {
                 Ok(_) => {
-                    status_tx.send(Status::TxAck).unwrap();
+                    status_tx.send(Status::TxAck(IO::Processor)).unwrap();
                 }
                 Err(e) => {
-                    status_tx.send(Status::TxErr).unwrap();
+                    status_tx.send(Status::TxErr(IO::Processor)).unwrap();
                     log::error!("could not send data {}", e);
                 }
             }
         }
-        status_tx.send(Status::RxFin).unwrap();
-        status_tx.send(Status::TxFin).unwrap();
+        status_tx.send(Status::RxFin(IO::Processor)).unwrap();
+        status_tx.send(Status::TxFin(IO::Processor)).unwrap();
         Ok(())
     }
 }

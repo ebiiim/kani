@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 
 /// [-32768, 32767] -> [-1.0, 1.0]
 pub fn i16_to_f32(a: &[i16]) -> Vec<f32> {
@@ -68,8 +69,6 @@ pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
 
 pub trait Filter {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
-    // // in-place version
-    // fn apply2(&mut self, xs: &mut Vec<f32>);
 }
 
 pub trait Filter2ch {
@@ -91,7 +90,11 @@ impl Delay {
     /// Panics if it needs more than 1GiB mem.
     /// See also: Delay::with_tapnum
     pub fn new(time_ms: usize, sample_rate: usize) -> Self {
-        log::debug!("delay time_ms={} sample_rate={}", time_ms, sample_rate);
+        log::debug!(
+            "filter::Delay time_ms={} sample_rate={}",
+            time_ms,
+            sample_rate
+        );
         Self::with_tapnum(Self::calc_tapnum(time_ms, sample_rate))
     }
     fn calc_tapnum(time_ms: usize, sample_rate: usize) -> usize {
@@ -148,21 +151,21 @@ impl Volume {
             VolumeCurve::Linear => val,
             VolumeCurve::Gain => 10.0f32.powf(val / 20.0),
         };
-        log::debug!("volume {:?}({})=>{}", curve, val, ratio);
+        log::debug!("filter::Volume {:?}({})=>{}", curve, val, ratio);
         Self { curve, val, ratio }
     }
     pub fn newb(curve: VolumeCurve, val: f32) -> Box<dyn Filter> {
         Box::new(Self::new(curve, val))
     }
+    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        xs.iter().map(|x| x * self.ratio as f32).collect()
+    }
 }
 
 impl Filter for Volume {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
-        xs.iter().map(|x| x * self.ratio as f32).collect()
+        self.apply(xs)
     }
-    // fn apply2(&mut self, xs: &mut Vec<f32>) {
-    //     xs.iter_mut().for_each(|x| *x *= self.ratio as f32)
-    // }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -352,7 +355,7 @@ impl BiquadFilter {
             buf_y: [0.0; 2],
             coeff,
         };
-        log::debug!("BiquadFilter::new {:?}", bqf);
+        log::debug!("filter::BiquadFilter {:?}", bqf);
         bqf
     }
     pub fn newb(
@@ -364,10 +367,7 @@ impl BiquadFilter {
     ) -> Box<dyn Filter> {
         Box::new(Self::new(filter_type, rate, f0, gain, param))
     }
-}
-
-impl Filter for BiquadFilter {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         let mut buf: Vec<f32> = Vec::with_capacity(xs.len());
         for x in xs.iter() {
             let y = self.coeff.b0_div_a0 * x
@@ -383,6 +383,15 @@ impl Filter for BiquadFilter {
             buf.push(y);
         }
         buf
+    }
+    pub fn dump_coeff(&self) -> String {
+        self.coeff.dump()
+    }
+}
+
+impl Filter for BiquadFilter {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        self.apply(xs)
     }
 }
 
@@ -400,6 +409,7 @@ impl Convolver {
     ///   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
     ///   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
     pub fn new(ir: &[f32]) -> Self {
+        log::debug!("filter::Convolver ir.len()={}", ir.len());
         let buf = vec![0.0; ir.len()];
         let mut ir = ir.to_vec();
         ir.reverse();
@@ -411,10 +421,7 @@ impl Convolver {
     pub fn newb(ir: &[f32]) -> Box<dyn Filter> {
         Box::new(Self::new(ir))
     }
-}
-
-impl Filter for Convolver {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         if self.ir.is_empty() {
             return xs.to_vec(); // do nothing
         }
@@ -434,6 +441,12 @@ impl Filter for Convolver {
             vy.push(y);
         }
         vy
+    }
+}
+
+impl Filter for Convolver {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        self.apply(xs)
     }
 }
 
@@ -467,6 +480,7 @@ impl VocalRemover {
     const VOL: f32 = -3.0;
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
+        log::debug!("filter::VocalRemover type={:?}", vrtype);
         match vrtype {
             VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
                 let lv = Volume::new(VolumeCurve::Gain, Self::VOL);
@@ -523,19 +537,16 @@ impl VocalRemover {
     pub fn newb(vrtype: VocalRemoverType) -> Box<dyn Filter2ch> {
         Box::new(Self::new(vrtype))
     }
-}
-
-impl Filter2ch for VocalRemover {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         match self.vrtype {
             VocalRemoverType::RemoveCenter => {
                 let lr: Vec<f32> = l.iter().zip(r).map(|(l, r)| l - r).collect();
                 (lr.clone(), lr)
             }
             VocalRemoverType::RemoveCenterBW(_, _, _) => {
-                //
-                let mut l = self.lv.apply(l);
-                let mut r = self.rv.apply(r);
+                // reduce gain to avoid clipping
+                let l = self.lv.apply(l);
+                let r = self.rv.apply(r);
 
                 let ll = self.ll.apply(&l); // low (L ch)
                 let lh = self.lh.apply(&l); // high (L ch)
@@ -564,33 +575,53 @@ impl Filter2ch for VocalRemover {
     }
 }
 
+impl Filter2ch for VocalRemover {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        self.apply(l, r)
+    }
+}
+
 #[derive(Debug)]
 pub struct NopFilter;
 
-impl Filter for NopFilter {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+impl NopFilter {
+    pub fn new(&self) -> Self {
+        log::debug!("filter::NopFilter");
+        Self
+    }
+    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         xs.to_vec()
     }
 }
 
-#[derive(Debug)]
-pub struct PairFilter<F1: Filter, F2: Filter>(F1, F2);
-
-impl<F1: Filter, F2: Filter> PairFilter<F1, F2> {
-    pub fn new(l: F1, r: F2) -> Self {
-        PairFilter(l, r)
+impl Filter for NopFilter {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        self.apply(xs)
     }
 }
 
-impl<F1: Filter, F2: Filter> Filter2ch for PairFilter<F1, F2> {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+#[derive(Debug)]
+pub struct PairFilter<F1: Filter + Debug, F2: Filter + Debug>(F1, F2);
+
+impl<F1: Filter + Debug, F2: Filter + Debug> PairFilter<F1, F2> {
+    pub fn new(l: F1, r: F2) -> Self {
+        log::debug!("filter::PairFilter l={:?} r={:?}", l, r);
+        Self(l, r)
+    }
+    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         (self.0.apply(l), self.1.apply(r))
+    }
+}
+
+impl<F1: Filter + Debug, F2: Filter + Debug> Filter2ch for PairFilter<F1, F2> {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        self.apply(l, r)
     }
 }
 
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
     v.iter()
-        .fold(String::new(), |s, x| format!("{}{}", s, x.coeff.dump()))
+        .fold(String::new(), |s, x| format!("{}{}", s, x.dump_coeff()))
 }
 
 pub fn nextpow2(n: f32) -> usize {
