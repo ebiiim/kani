@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
@@ -67,6 +68,21 @@ pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
     a
 }
 
+/// FilterType includes all filters and used for serialize/deserialize.
+/// Each Filter has `_ft` field to hold this value.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+enum FilterType {
+    // 1ch
+    FTNop,
+    FTDelay,
+    FTVolume,
+    FTBiquad,
+    FTConvolver,
+    // 2ch
+    FTPair,
+    FTVoiceRemover,
+}
+
 pub trait Filter {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
 }
@@ -75,9 +91,12 @@ pub trait Filter2ch {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Delay {
+    _ft: FilterType,
     tapnum: usize,
+    #[serde(skip)]
+    #[serde(default = "VecDeque::new")]
     buf: VecDeque<f32>,
 }
 
@@ -111,15 +130,16 @@ impl Delay {
         log::debug!("delay tapnum={}", tapnum);
         let buf: Vec<f32> = vec![0.0; tapnum];
         let buf = VecDeque::from(buf);
-        Self { tapnum, buf }
+        Self {
+            _ft: FilterType::FTDelay,
+            tapnum,
+            buf,
+        }
     }
     pub fn newb(time_ms: usize, sample_rate: usize) -> Box<dyn Filter> {
         Box::new(Self::new(time_ms, sample_rate))
     }
-}
-
-impl Filter for Delay {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         if self.tapnum == 0 {
             return xs.to_vec(); // do nothing
         }
@@ -132,14 +152,21 @@ impl Filter for Delay {
     }
 }
 
-#[derive(Debug)]
+impl Filter for Delay {
+    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+        self.apply(xs)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Volume {
+    _ft: FilterType,
     curve: VolumeCurve,
     val: f32,
     ratio: f32,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum VolumeCurve {
     Linear,
     Gain,
@@ -152,7 +179,12 @@ impl Volume {
             VolumeCurve::Gain => 10.0f32.powf(val / 20.0),
         };
         log::debug!("filter::Volume {:?}({})=>{}", curve, val, ratio);
-        Self { curve, val, ratio }
+        Self {
+            _ft: FilterType::FTVolume,
+            curve,
+            val,
+            ratio,
+        }
     }
     pub fn newb(curve: VolumeCurve, val: f32) -> Box<dyn Filter> {
         Box::new(Self::new(curve, val))
@@ -168,7 +200,7 @@ impl Filter for Volume {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum BQFType {
     LowPass,
     HighPass,
@@ -181,7 +213,7 @@ pub enum BQFType {
     HighShelf,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum BQFParam {
     // Q factor
     Q(f32),
@@ -191,7 +223,7 @@ pub enum BQFParam {
     S(f32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BQFCoeff {
     b0: f32,
     b1: f32,
@@ -312,9 +344,14 @@ impl BQFCoeff {
     }
 }
 
-#[derive(Debug)]
+fn _a2f32() -> [f32; 2] {
+    [0.0, 0.0]
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BiquadFilter {
-    /// filter type
+    _ft: FilterType,
+    /// BQF type
     filter_type: BQFType,
     /// sampling rate
     rate: f32,
@@ -325,8 +362,12 @@ pub struct BiquadFilter {
     /// Q/Bandwidth/Slope value
     param: BQFParam,
     /// input delay buffer
+    #[serde(skip)]
+    #[serde(default = "_a2f32")]
     buf_x: [f32; 2],
     /// output delay buffer
+    #[serde(skip)]
+    #[serde(default = "_a2f32")]
     buf_y: [f32; 2],
     /// coefficients
     coeff: BQFCoeff,
@@ -346,6 +387,7 @@ impl BiquadFilter {
 
         let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
         let bqf = BiquadFilter {
+            _ft: FilterType::FTBiquad,
             filter_type,
             rate,
             f0,
@@ -395,11 +437,14 @@ impl Filter for BiquadFilter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Convolver {
+    _ft: FilterType,
     /// impulse response
     ir: Vec<f32>,
     /// ring buffer
+    #[serde(skip)]
+    #[serde(default = "VecDeque::new")]
     buf: VecDeque<f32>,
 }
 
@@ -414,6 +459,7 @@ impl Convolver {
         let mut ir = ir.to_vec();
         ir.reverse();
         Self {
+            _ft: FilterType::FTConvolver,
             ir,
             buf: VecDeque::from(buf),
         }
@@ -450,7 +496,7 @@ impl Filter for Convolver {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum VocalRemoverType {
     RemoveCenter,
     /// (Sampling rate, Remove start, Remove end)
@@ -458,8 +504,9 @@ pub enum VocalRemoverType {
     RemoveCenterBW(f32, f32, f32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct VocalRemover {
+    _ft: FilterType,
     vrtype: VocalRemoverType,
     lv: Volume,
     rv: Volume,
@@ -494,6 +541,7 @@ impl VocalRemover {
                 let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
                 let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
                 Self {
+                    _ft: FilterType::FTVoiceRemover,
                     vrtype,
                     lv,
                     rv,
@@ -519,6 +567,7 @@ impl VocalRemover {
                 let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 Self {
+                    _ft: FilterType::FTVoiceRemover,
                     vrtype,
                     lv,
                     rv,
@@ -581,13 +630,17 @@ impl Filter2ch for VocalRemover {
     }
 }
 
-#[derive(Debug)]
-pub struct NopFilter;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NopFilter {
+    _ft: FilterType,
+}
 
 impl NopFilter {
-    pub fn new(&self) -> Self {
+    pub fn new() -> Self {
         log::debug!("filter::NopFilter");
-        Self
+        Self {
+            _ft: FilterType::FTNop,
+        }
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         xs.to_vec()
@@ -600,16 +653,24 @@ impl Filter for NopFilter {
     }
 }
 
-#[derive(Debug)]
-pub struct PairFilter<F1: Filter + Debug, F2: Filter + Debug>(F1, F2);
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PairFilter<F1: Filter + Debug, F2: Filter + Debug> {
+    _ft: FilterType,
+    l: F1,
+    r: F2,
+}
 
 impl<F1: Filter + Debug, F2: Filter + Debug> PairFilter<F1, F2> {
     pub fn new(l: F1, r: F2) -> Self {
         log::debug!("filter::PairFilter l={:?} r={:?}", l, r);
-        Self(l, r)
+        Self {
+            _ft: FilterType::FTPair,
+            l,
+            r,
+        }
     }
     pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
-        (self.0.apply(l), self.1.apply(r))
+        (self.l.apply(l), self.r.apply(r))
     }
 }
 
@@ -895,5 +956,72 @@ mod tests {
         let want: [f32; 0] = [];
         let got = load_ir(s, 4096);
         assert!(format!("{:?}", got) == format!("{:?}", want));
+    }
+
+    #[test]
+    fn test_delay_serialize() {
+        let t = Delay::new(200, 48000);
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(r#"{"_ft":"FTDelay","tapnum":9600}"#, got);
+    }
+
+    #[test]
+    fn test_volume_serialize() {
+        let t = Volume::new(VolumeCurve::Gain, -6.0);
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(
+            r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}"#,
+            got
+        );
+    }
+
+    #[test]
+    fn test_biquadfilter_serialize() {
+        let t = BiquadFilter::new(
+            BQFType::PeakingEQ,
+            48000.0,
+            1234.0,
+            -3.5,
+            BQFParam::Q(0.707),
+        );
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(
+            r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","rate":48000.0,"f0":1234.0,"gain":-3.5,"param":{"Q":0.707},"coeff":{"b0":1.0929853,"b1":-1.9739647,"b2":0.9070147,"a0":1.1391279,"a1":-1.9739647,"a2":0.86087215,"b0_div_a0":0.95949304,"b1_div_a0":-1.7328737,"b2_div_a0":0.7962361,"a1_div_a0":-1.7328737,"a2_div_a0":0.7557292}}"#,
+            got
+        );
+    }
+
+    #[test]
+    fn test_convolver_serialize() {
+        let t = Convolver::new(&[0.01, 0.02, 0.03, 0.04]);
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(r#"{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]}"#, got);
+    }
+
+    #[test]
+    fn test_nop_serialize() {
+        let t = NopFilter::new();
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(r#"{"_ft":"FTNop"}"#, got);
+    }
+
+    #[test]
+    fn test_voiceremover_serialize() {
+        let t = VocalRemover::new(VocalRemoverType::RemoveCenterBW(48000.0, 200.0, 4000.0));
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(
+            r#"{"_ft":"FTVoiceRemover","vrtype":{"RemoveCenterBW":[48000.0,200.0,4000.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":141.40001,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.000085651875,"b1":0.00017130375,"b2":0.000085651875,"a0":1.0130892,"a1":-1.9996574,"a2":0.98691076,"b0_div_a0":0.000084545245,"b1_div_a0":0.00016909049,"b2_div_a0":0.000084545245,"a1_div_a0":-1.9738216,"a2_div_a0":0.97415984}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":282.88544,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.9996573,"b1":-1.9993145,"b2":0.9996573,"a0":1.0261818,"a1":-1.998629,"a2":0.9738181,"b0_div_a0":0.9741522,"b1_div_a0":-1.9483044,"b2_div_a0":0.9741522,"a1_div_a0":-1.9476364,"a2_div_a0":0.9489723}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":5657.7085,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.8690345,"b1":-1.738069,"b2":0.8690345,"a0":1.4771749,"a1":-1.476138,"a2":0.5228251,"b0_div_a0":0.5883085,"b1_div_a0":-1.176617,"b2_div_a0":0.5883085,"a1_div_a0":-0.99929804,"a2_div_a0":0.35393584}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":2828.0,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.033869654,"b1":0.06773931,"b2":0.033869654,"a0":1.2558608,"a1":-1.8645214,"a2":0.74413913,"b0_div_a0":0.026969275,"b1_div_a0":0.05393855,"b2_div_a0":0.026969275,"a1_div_a0":-1.4846561,"a2_div_a0":0.5925331}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":141.40001,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.000085651875,"b1":0.00017130375,"b2":0.000085651875,"a0":1.0130892,"a1":-1.9996574,"a2":0.98691076,"b0_div_a0":0.000084545245,"b1_div_a0":0.00016909049,"b2_div_a0":0.000084545245,"a1_div_a0":-1.9738216,"a2_div_a0":0.97415984}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":282.88544,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.9996573,"b1":-1.9993145,"b2":0.9996573,"a0":1.0261818,"a1":-1.998629,"a2":0.9738181,"b0_div_a0":0.9741522,"b1_div_a0":-1.9483044,"b2_div_a0":0.9741522,"a1_div_a0":-1.9476364,"a2_div_a0":0.9489723}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":5657.7085,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.8690345,"b1":-1.738069,"b2":0.8690345,"a0":1.4771749,"a1":-1.476138,"a2":0.5228251,"b0_div_a0":0.5883085,"b1_div_a0":-1.176617,"b2_div_a0":0.5883085,"a1_div_a0":-0.99929804,"a2_div_a0":0.35393584}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":2828.0,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.033869654,"b1":0.06773931,"b2":0.033869654,"a0":1.2558608,"a1":-1.8645214,"a2":0.74413913,"b0_div_a0":0.026969275,"b1_div_a0":0.05393855,"b2_div_a0":0.026969275,"a1_div_a0":-1.4846561,"a2_div_a0":0.5925331}}}"#,
+            got
+        );
+    }
+
+    #[test]
+    fn test_pairfilter_serialize() {
+        let t = PairFilter::new(Convolver::new(&[0.01, 0.02, 0.03, 0.04]), NopFilter::new());
+        let got = serde_json::to_string(&t).unwrap();
+        assert_eq!(
+            r#"{"_ft":"FTPair","l":{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]},"r":{"_ft":"FTNop"}}"#,
+            got
+        );
     }
 }

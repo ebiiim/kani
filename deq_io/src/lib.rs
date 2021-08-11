@@ -536,7 +536,7 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
-        Box::new(f::NopFilter),
+        Box::new(f::NopFilter::new()),
     ];
     let rfs: Vec<Box<dyn f::Filter>> = vec![
         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
@@ -544,15 +544,15 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
-        Box::new(f::NopFilter),
+        Box::new(f::NopFilter::new()),
     ];
     (lfs, rfs)
 }
 
 fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
     let pf = f::PairFilter::new(
-        f::NopFilter,
-        f::NopFilter,
+        f::NopFilter::new(),
+        f::NopFilter::new(),
         // Volume::new(VolumeCurve::Gain, -6.0),
         // Volume::new(VolumeCurve::Gain, -6.0),
     );
