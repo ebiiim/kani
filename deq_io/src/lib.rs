@@ -546,6 +546,8 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // Delay::newb(200, fs as usize),
         Box::new(f::NopFilter::new()),
     ];
+    log::debug!("lfs={}", f::vec_to_json(&lfs));
+    log::debug!("rfs={}", f::vec_to_json(&rfs));
     (lfs, rfs)
 }
 
@@ -562,6 +564,7 @@ fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
         VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 340.0, 4800.0)),
     ];
+    log::debug!("sfs={}", f::vec2_to_json(&sfs));
     sfs
 }
 

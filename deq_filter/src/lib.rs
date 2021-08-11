@@ -726,6 +726,32 @@ impl<F1: Filter + Debug + Serialize, F2: Filter + Debug + Serialize> Filter2ch
     }
 }
 
+type VecFilters = Vec<Box<dyn Filter>>;
+
+type VecFilters2ch = Vec<Box<dyn Filter2ch>>;
+
+pub fn vec_to_json(vf: &VecFilters) -> String {
+    if vf.len() == 0 {
+        return String::from("[]");
+    }
+    let s = vf
+        .iter()
+        .fold(String::from("["), |s, f| s + &f.to_json() + ",");
+    let s = &s[0..s.len() - 1];
+    s.to_string() + "]"
+}
+
+pub fn vec2_to_json(vf2: &VecFilters2ch) -> String {
+    if vf2.len() == 0 {
+        return String::from("[]");
+    }
+    let s = vf2
+        .iter()
+        .fold(String::from("["), |s, f| s + &f.to_json() + ",");
+    let s = &s[0..s.len() - 1];
+    s.to_string() + "]"
+}
+
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
     v.iter()
         .fold(String::new(), |s, x| format!("{}{}", s, x.dump_coeff()))
