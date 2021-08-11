@@ -550,7 +550,7 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
 }
 
 fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
-    let pf = f::PairFilter::new(
+    let pf = f::PairedFilter::new(
         f::NopFilter::new(),
         f::NopFilter::new(),
         // Volume::new(VolumeCurve::Gain, -6.0),
