@@ -1,4 +1,4 @@
-use deq_filter as f;
+use deq_filter::*;
 use deq_io as io;
 use io::Status::*;
 use portaudio as pa;
@@ -119,20 +119,58 @@ fn read_int(s: &str) -> Result<usize, io::IOError> {
     }
 }
 
-const DEFAULT_CONFIG_FILTERS: &str = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[44100.0,240.0,4400.0]}}]"#;
-
-fn load_vec2ch(path: &str) -> f::VecFilters2ch {
+fn load_vec2ch(path: &str, fs: f32) -> VecFilters2ch {
     match fs::read_to_string(path) {
-        Ok(s) => f::json_to_vec2ch(&s),
+        Ok(s) => json_to_vec2ch(&s),
         Err(_) => {
+            let default_filters = setup_vf2(fs);
             log::warn!(
                 "{} not found so loaded default config: {}",
                 PATH_FILTERS,
-                DEFAULT_CONFIG_FILTERS
+                vec2ch_to_json(&default_filters)
             );
-            f::json_to_vec2ch(DEFAULT_CONFIG_FILTERS)
+            default_filters
         }
     }
+}
+
+fn setup_vf(fs: f32) -> (VecFilters, VecFilters) {
+    let lvf: VecFilters = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Gain, -6.0),
+        // Delay::newb(200, fs as usize),
+        NopFilter::newb(),
+    ];
+    let rvf: VecFilters = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Gain, -6.0),
+        // Delay::newb(200, fs as usize),
+        NopFilter::newb(),
+    ];
+    log::info!("filters (L ch): {}", vec_to_json(&lvf));
+    log::info!("filters (R ch): {}", vec_to_json(&rvf));
+    (lvf, rvf)
+}
+
+fn setup_vf2(fs: f32) -> VecFilters2ch {
+    let pf = PairedFilter::newb(
+        // NopFilter::newb(),
+        // NopFilter::newb(),
+        Volume::newb(VolumeCurve::Gain, -6.0),
+        Volume::newb(VolumeCurve::Gain, -6.0),
+    );
+    let vf2: VecFilters2ch = vec![
+        pf,
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 240.0, 4400.0)),
+    ];
+    log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
+    vf2
 }
 
 pub fn play(
@@ -275,8 +313,11 @@ pub fn start() {
                         44100,
                         2,
                     );
-                    let dsp =
-                        io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
+                    let dsp = io::DSP::new(
+                        r.info().frame,
+                        r.info().rate,
+                        load_vec2ch(PATH_FILTERS, r.info().rate as f32),
+                    );
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -295,8 +336,11 @@ pub fn start() {
                     if let Ok(n) = read_str("file name> ") {
                         let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp =
-                            io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
+                        let dsp = io::DSP::new(
+                            r.info().frame,
+                            r.info().rate,
+                            load_vec2ch(PATH_FILTERS, r.info().rate as f32),
+                        );
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -315,8 +359,11 @@ pub fn start() {
                     }
                     let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp =
-                        io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
+                    let dsp = io::DSP::new(
+                        r.info().frame,
+                        r.info().rate,
+                        load_vec2ch(PATH_FILTERS, r.info().rate as f32),
+                    );
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
