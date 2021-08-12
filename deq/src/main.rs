@@ -1,3 +1,4 @@
+use anyhow::{bail, Context, Result};
 use deq_io as io;
 use io::Status::*;
 use portaudio as pa;
@@ -50,7 +51,7 @@ fn main() {
     start();
 }
 
-fn print_devices(pa: &pa::PortAudio) -> Result<(), io::IOError> {
+fn print_devices(pa: &pa::PortAudio) -> Result<()> {
     let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
         println!("{}\t{}", idx, name);
@@ -58,13 +59,13 @@ fn print_devices(pa: &pa::PortAudio) -> Result<(), io::IOError> {
     Ok(())
 }
 
-fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<(), io::IOError> {
+fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<()> {
     let devinfo = io::get_device_info(pa, idx)?;
     println!("{:#?}", devinfo);
     Ok(())
 }
 
-fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize, io::IOError> {
+fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize> {
     let mut dev = CLI_DEV_INVALID;
     let device_names = io::get_device_names(pa)?;
     device_names.iter().for_each(|(idx, name)| {
@@ -73,7 +74,7 @@ fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize, io::IOError>
         }
     });
     if dev == CLI_DEV_INVALID {
-        Err(io::IOError::Device)
+        bail!("device \"{}\" not found", n);
     } else {
         Ok(dev)
     }
@@ -94,27 +95,25 @@ fn get_default_devices(pa: &pa::PortAudio) -> (usize, usize) {
     (input_dev, output_dev)
 }
 
-fn read_str(s: &str) -> Result<String, io::IOError> {
+fn read_str(s: &str) -> Result<String> {
     print!("{}", s);
-    if stdout().flush().is_err() {
-        log::error!("could not flush stdout");
-    }
+    stdout().flush().with_context(|| "coult not flush stdout")?;
     let mut input = String::new();
-    if stdin().read_line(&mut input).is_err() {
-        log::error!("could not read line");
-        return Err(io::IOError::Format);
-    }
+    stdin()
+        .read_line(&mut input)
+        .with_context(|| "coult not read line")?;
     log::trace!("read_str={}", input);
     Ok(input.trim().to_string())
 }
 
-fn read_int(s: &str) -> Result<usize, io::IOError> {
+fn read_int(s: &str) -> Result<usize> {
     let read = read_str(s)?.trim().parse();
-    log::trace!("read_int={:?}", read);
-    match read {
-        Ok(i) => Ok(i),
-        Err(_) => Err(io::IOError::Format),
+    if read.is_err() {
+        bail!("could not parse {} to int", s);
     }
+    let read = read.unwrap();
+    log::trace!("read_int={:?}", read);
+    Ok(read)
 }
 
 pub fn play(
@@ -127,18 +126,21 @@ pub fn play(
     let (in_status_tx, status_rx) = sync_channel(0);
     let dsp_status_tx = in_status_tx.clone();
     let out_status_tx = in_status_tx.clone();
+    let (in_cmd_tx, in_cmd_rx) = sync_channel(0);
+    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(0);
+    let (out_cmd_tx, out_cmd_rx) = sync_channel(0);
 
     let frame = r.info().frame;
     let rate = r.info().rate;
 
     let _ = thread::spawn(move || {
-        r.run(tx1, in_status_tx).unwrap();
+        r.run(tx1, in_status_tx, in_cmd_rx).unwrap();
     });
     let _ = thread::spawn(move || {
-        dsp.run(rx1, tx2, dsp_status_tx).unwrap();
+        dsp.run(rx1, tx2, dsp_status_tx, dsp_cmd_rx).unwrap();
     });
     let _ = thread::spawn(move || {
-        w.run(rx2, out_status_tx).unwrap();
+        w.run(rx2, out_status_tx, out_cmd_rx).unwrap();
     });
 
     // prepare avg latency
@@ -257,7 +259,11 @@ pub fn start() {
                         44100,
                         2,
                     );
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, PATH_FILTERS);
+                    let dsp = io::DSP::new(
+                        r.info().frame,
+                        r.info().rate,
+                        &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
+                    );
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -276,7 +282,11 @@ pub fn start() {
                     if let Ok(n) = read_str("file name> ") {
                         let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp = io::DSP::new(r.info().frame, r.info().rate, PATH_FILTERS);
+                        let dsp = io::DSP::new(
+                            r.info().frame,
+                            r.info().rate,
+                            &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
+                        );
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -295,7 +305,11 @@ pub fn start() {
                     }
                     let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, PATH_FILTERS);
+                    let dsp = io::DSP::new(
+                        r.info().frame,
+                        r.info().rate,
+                        &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
+                    );
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,

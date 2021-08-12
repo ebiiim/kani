@@ -1,3 +1,4 @@
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -903,104 +904,104 @@ struct _PairedFilterDeserializationStruct {
     r: serde_json::Value,
 }
 
-pub fn json_to_filter(s: &str, fs: f32) -> BoxedFilter {
-    let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("json_to_filter returned NopFilter because err={}", e);
-            return NopFilter::newb();
-        }
-    };
+pub fn json_to_filter(s: &str, fs: f32) -> Result<BoxedFilter> {
+    let x: _FilterDeserializationStruct =
+        serde_json::from_str(s).with_context(|| format!("could not deserialize Filter {}", s))?;
     match x._ft {
         FilterType::FTNop => {
-            let mut f = Box::<NopFilter>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<NopFilter>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize NopFilter {}", s))?,
+            );
             f.init();
-            f
+            Ok(f)
         }
         FilterType::FTVolume => {
-            let mut f = Box::<Volume>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<Volume>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize Volume {}", s))?,
+            );
             f.init();
-            f
+            Ok(f)
         }
         FilterType::FTDelay => {
-            let mut f = Box::<Delay>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<Delay>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize Delay {}", s))?,
+            );
             f.init(fs);
-            f
+            Ok(f)
         }
         FilterType::FTBiquad => {
-            let mut f = Box::<BiquadFilter>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<BiquadFilter>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize BiquadFilter {}", s))?,
+            );
             f.init(fs);
-            f
+            Ok(f)
         }
         FilterType::FTConvolver => {
-            let mut f = Box::<Convolver>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<Convolver>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize Convolver {}", s))?,
+            );
             f.init();
-            f
+            Ok(f)
         }
         _ => {
-            log::error!(
-                "json_to_filter found unsupported FilterType={:?} and returned NopFilter",
-                x._ft
-            );
-            NopFilter::newb()
+            bail!("could not deserialize unsupported FilterType={:?}", x._ft);
         }
     }
 }
 
-pub fn json_to_filter2ch(s: &str, fs: f32) -> BoxedFilter2ch {
-    let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!(
-                "json_to_filter2 returned PairedFilter(NopFilter,NopFilter) because err={}",
-                e
-            );
-            return PairedFilter::newb(NopFilter::newb(), NopFilter::newb(), fs);
-        }
-    };
+pub fn json_to_filter2ch(s: &str, fs: f32) -> Result<BoxedFilter2ch> {
+    let x: _FilterDeserializationStruct = serde_json::from_str(s)
+        .with_context(|| format!("could not deserialize Filter2ch {}", s))?;
     match x._ft {
         FilterType::FTVocalRemover => {
-            let mut f = Box::<VocalRemover>::new(serde_json::from_str(s).unwrap());
+            let mut f = Box::<VocalRemover>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize VocalRemover {}", s))?,
+            );
             f.init(fs);
-            f
+            Ok(f)
         }
         FilterType::FTPaired => {
-            let tmp: _PairedFilterDeserializationStruct = serde_json::from_str(s).unwrap();
+            let tmp: _PairedFilterDeserializationStruct = serde_json::from_str(s)
+                .with_context(|| format!("could not deserialize PairedFilter {}", s))?;
             let mut f = Box::<PairedFilter>::new(PairedFilter::new(
-                json_to_filter(&format!("{}", tmp.l), fs),
-                json_to_filter(&format!("{}", tmp.r), fs),
+                json_to_filter(&format!("{}", tmp.l), fs)?,
+                json_to_filter(&format!("{}", tmp.r), fs)?,
                 fs,
             ));
             f.l.init(fs);
             f.r.init(fs);
-            f
+            Ok(f)
         }
         _ => {
-            log::error!(
-                "json_to_filter2 found unsupported FilterType={:?} and returned PairedFilter(NopFilter,NopFilter)",
-                x._ft
-            );
-            PairedFilter::newb(NopFilter::newb(), NopFilter::newb(), fs)
+            bail!("could not deserialize unsupported FilterType={:?}", x._ft)
         }
     }
 }
 
-pub fn json_to_vec(s: &str, fs: f32) -> VecFilters {
+pub fn json_to_vec(s: &str, fs: f32) -> Result<VecFilters> {
     let mut vf = VecFilters::new();
-    let v: Vec<serde_json::Value> = serde_json::from_str(s).unwrap_or(Vec::new());
+    let v: Vec<serde_json::Value> =
+        serde_json::from_str(s).with_context(|| "could not deserialize VecFilters")?;
     for x in v {
-        vf.push(json_to_filter(&format!("{}", x), fs));
+        vf.push(json_to_filter(&format!("{}", x), fs)?);
     }
-    vf
+    Ok(vf)
 }
 
-pub fn json_to_vec2ch(s: &str, fs: f32) -> VecFilters2ch {
+pub fn json_to_vec2ch(s: &str, fs: f32) -> Result<VecFilters2ch> {
     let mut vf = VecFilters2ch::new();
-    let v: Vec<serde_json::Value> = serde_json::from_str(s).unwrap_or(Vec::new());
+    let v: Vec<serde_json::Value> = serde_json::from_str(s)
+        .with_context(|| format!("could not deserialize VecFilters2ch {}", s))?;
     for x in v {
-        vf.push(json_to_filter2ch(&format!("{}", x), fs));
+        vf.push(json_to_filter2ch(&format!("{}", x), fs)?);
     }
-    vf
+    Ok(vf)
 }
 
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
@@ -1289,7 +1290,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter(want, fs).to_json();
+        let got2 = json_to_filter(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1301,7 +1302,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter(want, fs).to_json();
+        let got2 = json_to_filter(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1313,7 +1314,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter(want, fs).to_json();
+        let got2 = json_to_filter(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1325,7 +1326,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter(want, fs).to_json();
+        let got2 = json_to_filter(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1337,7 +1338,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter(want, fs).to_json();
+        let got2 = json_to_filter(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1349,7 +1350,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter2ch(want, fs).to_json();
+        let got2 = json_to_filter2ch(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1365,7 +1366,7 @@ mod tests {
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
-        let got2 = json_to_filter2ch(want, fs).to_json();
+        let got2 = json_to_filter2ch(want, fs).unwrap().to_json();
         assert_eq!(got, got2);
     }
 
@@ -1373,7 +1374,7 @@ mod tests {
     fn test_vec_to_json() {
         let fs = 48000.0;
         let t = r#"[{"_ft":"FTVolume","curve":"Gain","val":-6.0},{"_ft":"FTDelay","time_ms":200}]"#;
-        let got = vec_to_json(&json_to_vec(t, fs));
+        let got = vec_to_json(&json_to_vec(t, fs).unwrap());
         assert_eq!(t, got);
     }
 
@@ -1381,7 +1382,7 @@ mod tests {
     fn test_vec2ch_to_json() {
         let fs = 48000.0;
         let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[240.0,6600.0]}}]"#;
-        let got = vec2ch_to_json(&json_to_vec2ch(t, fs));
+        let got = vec2ch_to_json(&json_to_vec2ch(t, fs).unwrap());
         assert_eq!(t, got);
     }
 }

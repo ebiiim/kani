@@ -1,7 +1,6 @@
+use anyhow::{bail, Context, Result};
 use deq_filter::*;
 use portaudio as pa;
-use std::error;
-use std::fmt;
 use std::io::prelude::*;
 use std::process::{Command, Stdio};
 use std::slice;
@@ -9,24 +8,6 @@ use std::sync::mpsc::{Receiver, SyncSender};
 use std::time;
 
 extern crate deq_filter;
-
-#[derive(Debug)]
-pub enum IOError {
-    Device,
-    Format,
-}
-
-impl fmt::Display for IOError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match *self {
-            IOError::Device => "device error",
-            IOError::Format => "format error",
-        };
-        f.write_str(msg)
-    }
-}
-
-impl error::Error for IOError {}
 
 type Frame = usize;
 type Rate = usize;
@@ -57,6 +38,14 @@ pub enum Status {
     Latency(u32),
     /// Output inserted a frame to mitigate underrun.
     Interpolated(IO),
+    // TODO: RMS, Peak, Clipping?
+}
+
+#[derive(Debug)]
+pub enum Cmd {
+    /// Send config and reload
+    Reload(String),
+    // TODO: Start, Stop, Pause?
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -73,13 +62,18 @@ pub trait Input {
         &mut self,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError>;
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()>;
 }
 
 pub trait Output {
     fn info(&self) -> Info;
-    fn run(&mut self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>)
-        -> Result<(), IOError>;
+    fn run(
+        &mut self,
+        rx: Receiver<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()>;
 }
 
 pub trait Processor {
@@ -89,7 +83,8 @@ pub trait Processor {
         rx: Receiver<Vec<f32>>,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError>;
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -99,20 +94,15 @@ pub struct WaveReader {
 }
 
 impl WaveReader {
-    pub fn new(frame: Frame, path: &str) -> Result<Self, IOError> {
-        let r = hound::WavReader::open(path);
-        if let Err(e) = r {
-            log::error!("could not open wav err={}", e);
-            return Err(IOError::Format);
-        }
-        let r = r.unwrap();
+    pub fn new(frame: Frame, path: &str) -> Result<Self> {
+        let r = hound::WavReader::open(path)
+            .with_context(|| format!("could not open wav path={}", path))?;
         log::debug!("wav_info={:?}", r.spec());
         if r.spec().sample_format != hound::SampleFormat::Int
             || r.spec().bits_per_sample != 16
             || r.spec().channels != 2
         {
-            log::error!("wav must be 2ch pcm_s16le for now");
-            return Err(IOError::Format);
+            bail!("currenlty wav must be 2ch pcm_s16le");
         }
         Ok(WaveReader {
             info: Info {
@@ -137,14 +127,10 @@ impl Input for WaveReader {
         &mut self,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError> {
-        let reader = hound::WavReader::open(&self.path);
-        if let Err(e) = reader {
-            log::error!("could not open wav err={}", e);
-            return Err(IOError::Format);
-        }
-        let mut reader = reader.unwrap();
-
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()> {
+        let mut reader = hound::WavReader::open(&self.path)
+            .with_context(|| format!("could not open wav path={}", &self.path))?;
         // TODO: read in play loop to reduce load time
         let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
         let ch = self.info.output_ch;
@@ -161,6 +147,13 @@ impl Input for WaveReader {
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
         for i in 0..loopnum {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                // do nothing
+                log::trace!("WaveReader cmd_rx={:?}", cmd);
+            }
+            // process the frame
             let a = i * uframe;
             let b = (i + 1) * uframe;
             let buf = buf[a..b].to_vec();
@@ -223,13 +216,9 @@ impl Input for PAReader {
         &mut self,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError> {
-        let pa = pa::PortAudio::new();
-        if pa.is_err() {
-            log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
-            return Err(IOError::Device);
-        }
-        let pa = pa.unwrap();
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()> {
+        let pa = pa::PortAudio::new().with_context(|| "could not initialize portaudio")?;
         let ch = self.info.output_ch as i32;
         let interleaved = true;
         let frame = self.info.frame as u32;
@@ -243,26 +232,25 @@ impl Input for PAReader {
             latency,
         );
         log::debug!("use params={:?} rate={}", stream_params, rate);
-        if let Err(e) = pa.is_input_format_supported(stream_params, rate) {
-            log::error!("input format not supported err={}", e);
-            return Err(IOError::Format);
-        }
+        pa.is_input_format_supported(stream_params, rate)
+            .with_context(|| "input format not supported")?;
         let settings = pa::InputStreamSettings::new(stream_params, rate, frame);
-        let stream = pa.open_blocking_stream(settings);
-        if let Err(e) = stream {
-            log::error!("could not open stream err={}", e);
-            return Err(IOError::Format);
-        }
-        let mut stream = stream.unwrap();
-        if let Err(e) = stream.start() {
-            log::error!("could not start stream err={}", e);
-            return Err(IOError::Format);
-        }
+        let mut stream = pa
+            .open_blocking_stream(settings)
+            .with_context(|| "could not open stream")?;
+        stream.start().with_context(|| "could not start stream")?;
         log::debug!("stream started info={:?}", stream.info());
 
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
         loop {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                // do nothing
+                log::trace!("PAReader cmd_rx={:?}", cmd);
+            }
+            // process the frame
             match stream.read(frame) {
                 Ok(b) => match tx.send(b.to_vec()) {
                     Ok(_) => {
@@ -323,13 +311,9 @@ impl Output for PAWriter {
         &mut self,
         rx: Receiver<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError> {
-        let pa = pa::PortAudio::new();
-        if pa.is_err() {
-            log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
-            return Err(IOError::Device);
-        }
-        let pa = pa.unwrap();
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()> {
+        let pa = pa::PortAudio::new().with_context(|| "could not initialize portaudio")?;
         let ch = self.info.input_ch as i32;
         let interleaved = true;
         let frame = self.info.frame as u32;
@@ -343,27 +327,26 @@ impl Output for PAWriter {
             latency,
         );
         log::debug!("use params={:?} rate={}", stream_params, rate);
-        if let Err(e) = pa.is_output_format_supported(stream_params, rate) {
-            log::error!("output format not supported err={}", e);
-            return Err(IOError::Format);
-        }
+        pa.is_output_format_supported(stream_params, rate)
+            .with_context(|| "output format not supported")?;
         let settings = pa::OutputStreamSettings::new(stream_params, rate, frame);
-        let stream = pa.open_blocking_stream(settings);
-        if let Err(e) = stream {
-            log::error!("could not open stream err={}", e);
-            return Err(IOError::Format);
-        }
-        let mut stream = stream.unwrap();
-        if let Err(e) = stream.start() {
-            log::error!("could not start stream err={}", e);
-            return Err(IOError::Format);
-        }
+        let mut stream = pa
+            .open_blocking_stream(settings)
+            .with_context(|| "could not open stream")?;
+        stream.start().with_context(|| "could not start stream")?;
         log::debug!("stream started info={:?}", stream.info());
         let num_samples = (frame * ch as u32) as usize;
 
         status_tx.send(Status::RxInit(IO::Output)).unwrap();
 
         for buf in rx {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                // do nothing
+                log::trace!("PAWriter cmd_rx={:?}", cmd);
+            }
+            // process the frame
             let e = stream.write(frame, |w| {
                 assert_eq!(buf.len(), num_samples);
                 for (idx, sample) in buf.iter().enumerate() {
@@ -437,20 +420,20 @@ impl Input for PipeReader {
         &mut self,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError> {
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()> {
         let args: Vec<&str> = self.args.split(' ').collect();
 
-        let mut process = match Command::new(&self.cmd)
+        let mut process = Command::new(&self.cmd)
             .args(args)
             .stdout(Stdio::piped())
             .spawn()
-        {
-            Err(e) => {
-                log::error!("could not spawn process cmd={} err={}", &self.cmd, e);
-                return Err(IOError::Device);
-            }
-            Ok(process) => process,
-        };
+            .with_context(|| {
+                format!(
+                    "could not spawn process cmd={} args={}",
+                    self.cmd, self.args
+                )
+            })?;
 
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
@@ -458,6 +441,13 @@ impl Input for PipeReader {
         let mut buf = vec![0; buflen];
         let mut o = process.stdout.take().unwrap();
         loop {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                // do nothing
+                log::trace!("PipeReader cmd_rx={:?}", cmd);
+            }
+            // process the frame
             match o.read(&mut buf) {
                 Ok(n) => {
                     if n != buflen {
@@ -512,35 +502,27 @@ fn reinterpret_u8_to_i16(b: &mut [u8]) -> &[i16] {
     unsafe { slice::from_raw_parts(b.as_mut_ptr() as *const i16, b.len() / 2) }
 }
 
-pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>, IOError> {
-    let devs = pa.devices();
-    match devs {
-        Ok(devs) => Ok(devs
-            .map(|dev| {
-                let d = dev.unwrap();
-                let pa::DeviceIndex(idx) = d.0;
-                (idx as usize, String::from(d.1.name))
-            })
-            .collect()),
-        Err(_) => Err(IOError::Device),
-    }
+pub fn get_device_names(pa: &pa::PortAudio) -> Result<Vec<(usize, String)>> {
+    let devs = pa.devices().with_context(|| "could not fetch devices")?;
+    Ok(devs
+        .map(|dev| {
+            let d = dev.unwrap();
+            let pa::DeviceIndex(idx) = d.0;
+            (idx as usize, String::from(d.1.name))
+        })
+        .collect())
 }
 
-pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo, IOError> {
+pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo> {
     let devidx = pa::DeviceIndex(idx as u32);
-    let devs = pa.devices();
-    if let Ok(devs) = devs {
-        for d in devs {
-            if let Ok(d) = d {
-                if d.0 == devidx {
-                    return Ok(d.1);
-                }
-            } else {
-                return Err(IOError::Device);
-            }
+    let devs = pa.devices().with_context(|| "could not fetch devices")?;
+    for (i, d) in devs.enumerate() {
+        let d = d.with_context(|| format!("could not get device {}", i))?;
+        if d.0 == devidx {
+            return Ok(d.1);
         }
     }
-    Err(IOError::Device)
+    bail!("device {} not found", idx);
 }
 
 fn apply_filters(
@@ -617,11 +599,24 @@ impl Processor for DSP {
         rx: Receiver<Vec<f32>>,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
-    ) -> Result<(), IOError> {
+        cmd_rx: Receiver<Cmd>,
+    ) -> Result<()> {
         status_tx.send(Status::RxInit(IO::Processor)).unwrap();
         status_tx.send(Status::TxInit(IO::Processor)).unwrap();
 
         for buf in rx {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                log::trace!("DSP cmd_rx={:?}", cmd);
+                match cmd.unwrap() {
+                    Cmd::Reload(s) => {
+                        log::debug!("DSP reload config={}", s);
+                        self.vf2 = load_vec2ch(&s, self.info.rate as f32);
+                    }
+                }
+            }
+            // process the frame
             status_tx.send(Status::RxAck(IO::Processor)).unwrap();
             let start = time::Instant::now();
             // --- measure latency ---
@@ -648,14 +643,13 @@ impl Processor for DSP {
     }
 }
 
-fn load_vec2ch(path: &str, fs: f32) -> VecFilters2ch {
-    match std::fs::read_to_string(path) {
-        Ok(s) => json_to_vec2ch(&s, fs),
+fn load_vec2ch(json: &str, fs: f32) -> VecFilters2ch {
+    match json_to_vec2ch(json, fs) {
+        Ok(vf2) => vf2,
         Err(_) => {
             let default_filters = setup_vf2(fs);
             log::warn!(
-                "{} not found so loaded default config: {}",
-                path,
+                "could not parse json so default config loaded: {}",
                 vec2ch_to_json(&default_filters)
             );
             default_filters
