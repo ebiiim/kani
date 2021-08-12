@@ -36,7 +36,7 @@ A toy audio processor I made in my holidays just for fun :D
     - [x] Spotify Connect (using librespot & pipe)
 - User Interfaces
     - [x] CLI (minimal one)
-    - [ ] Config (Import / Export)
+    - [x] Config (Import / Export)
     - [ ] GUI
 - Supported Platforms (should work on same platforms as PortAudio)
     - [x] Windows

@@ -119,9 +119,20 @@ fn read_int(s: &str) -> Result<usize, io::IOError> {
     }
 }
 
+const DEFAULT_CONFIG_FILTERS: &str = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[44100.0,240.0,4400.0]}}]"#;
+
 fn load_vec2ch(path: &str) -> f::VecFilters2ch {
-    let j = fs::read_to_string(path).unwrap();
-    f::json_to_vec2ch(&j)
+    match fs::read_to_string(path) {
+        Ok(s) => f::json_to_vec2ch(&s),
+        Err(_) => {
+            log::warn!(
+                "{} not found so loaded default config: {}",
+                PATH_FILTERS,
+                DEFAULT_CONFIG_FILTERS
+            );
+            f::json_to_vec2ch(DEFAULT_CONFIG_FILTERS)
+        }
+    }
 }
 
 pub fn play(
@@ -186,8 +197,6 @@ pub fn play(
 }
 
 pub fn start() {
-    let cfg = load_vec2ch(PATH_FILTERS);
-
     let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -266,7 +275,8 @@ pub fn start() {
                         44100,
                         2,
                     );
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
+                    let dsp =
+                        io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -285,7 +295,8 @@ pub fn start() {
                     if let Ok(n) = read_str("file name> ") {
                         let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
+                        let dsp =
+                            io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -304,7 +315,8 @@ pub fn start() {
                     }
                     let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
+                    let dsp =
+                        io::DSP::new(r.info().frame, r.info().rate, load_vec2ch(PATH_FILTERS));
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
