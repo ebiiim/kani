@@ -536,7 +536,7 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
-        Box::new(f::NopFilter::new()),
+        f::NopFilter::newb(),
     ];
     let rfs: Vec<Box<dyn f::Filter>> = vec![
         // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
@@ -544,27 +544,27 @@ fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) 
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
         // Delay::newb(200, fs as usize),
-        Box::new(f::NopFilter::new()),
+        f::NopFilter::newb(),
     ];
-    log::debug!("lfs={}", f::vec_to_json(&lfs));
-    log::debug!("rfs={}", f::vec_to_json(&rfs));
+    log::info!("filters (L ch): {}", f::vec_to_json(&lfs));
+    log::info!("filters (R ch): {}", f::vec_to_json(&rfs));
     (lfs, rfs)
 }
 
 fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
-    let pf = f::PairedFilter::new(
-        f::NopFilter::new(),
-        f::NopFilter::new(),
-        // Volume::new(VolumeCurve::Gain, -6.0),
-        // Volume::new(VolumeCurve::Gain, -6.0),
+    let pf = f::PairedFilter::newb(
+        // f::NopFilter::newb(),
+        // f::NopFilter::newb(),
+        Volume::newb(VolumeCurve::Gain, -6.0),
+        Volume::newb(VolumeCurve::Gain, -6.0),
     );
     let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
-        Box::new(pf),
+        pf,
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 340.0, 4800.0)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 240.0, 6600.0)),
     ];
-    log::debug!("sfs={}", f::vec2_to_json(&sfs));
+    log::info!("filters (L&R ch): {}", f::vec2ch_to_json(&sfs));
     sfs
 }
 

@@ -80,7 +80,7 @@ enum FilterType {
     FTConvolver,
     // 2ch
     FTPaired,
-    FTVoiceRemover,
+    FTVocalRemover,
 }
 
 pub trait Filter {
@@ -88,9 +88,21 @@ pub trait Filter {
     fn to_json(&self) -> String;
 }
 
+impl Debug for dyn Filter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "filter::Filter(dyn) {}", self.to_json())
+    }
+}
+
 pub trait Filter2ch {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
     fn to_json(&self) -> String;
+}
+
+impl Debug for dyn Filter2ch {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "filter::Filter2ch(dyn) {}", self.to_json())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -155,6 +167,9 @@ impl Delay {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
+    }
 }
 
 impl Filter for Delay {
@@ -202,6 +217,9 @@ impl Volume {
     }
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
+    }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
     }
 }
 
@@ -446,6 +464,9 @@ impl BiquadFilter {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
+    }
 }
 
 impl Filter for BiquadFilter {
@@ -511,6 +532,9 @@ impl Convolver {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
+    }
 }
 
 impl Filter for Convolver {
@@ -547,10 +571,15 @@ pub struct VocalRemover {
 }
 
 impl VocalRemover {
-    const RL: f32 = 0.707;
-    const RH: f32 = 1.0 / Self::RL;
-    const P: BQFParam = BQFParam::Q(0.707);
     const VOL: f32 = -3.0;
+
+    // const RL: f32 = 0.707;
+    // const RH: f32 = 1.0 / Self::RL;
+    // const P: BQFParam = BQFParam::Q(0.707);
+
+    const RL: f32 = 0.882;
+    const RH: f32 = 1.0 / Self::RL;
+    const P: BQFParam = BQFParam::Q(1.414);
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
         log::debug!("filter::VocalRemover type={:?}", vrtype);
@@ -567,7 +596,7 @@ impl VocalRemover {
                 let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
                 let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
                 Self {
-                    _ft: FilterType::FTVoiceRemover,
+                    _ft: FilterType::FTVocalRemover,
                     vrtype,
                     lv,
                     rv,
@@ -593,7 +622,7 @@ impl VocalRemover {
                 let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
                 Self {
-                    _ft: FilterType::FTVoiceRemover,
+                    _ft: FilterType::FTVocalRemover,
                     vrtype,
                     lv,
                     rv,
@@ -651,6 +680,9 @@ impl VocalRemover {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
+    }
 }
 
 impl Filter2ch for VocalRemover {
@@ -674,11 +706,17 @@ impl NopFilter {
             _ft: FilterType::FTNop,
         }
     }
+    pub fn newb() -> Box<dyn Filter> {
+        Box::new(Self::new())
+    }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
         xs.to_vec()
     }
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
+    }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
     }
 }
 
@@ -691,15 +729,15 @@ impl Filter for NopFilter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PairedFilter<F1: Filter + Debug, F2: Filter + Debug> {
+#[derive(Debug)]
+pub struct PairedFilter {
     _ft: FilterType,
-    l: F1,
-    r: F2,
+    l: Box<dyn Filter>,
+    r: Box<dyn Filter>,
 }
 
-impl<F1: Filter + Debug + Serialize, F2: Filter + Debug + Serialize> PairedFilter<F1, F2> {
-    pub fn new(l: F1, r: F2) -> Self {
+impl PairedFilter {
+    pub fn new(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Self {
         log::debug!("filter::PairedFilter l={:?} r={:?}", l, r);
         Self {
             _ft: FilterType::FTPaired,
@@ -707,17 +745,22 @@ impl<F1: Filter + Debug + Serialize, F2: Filter + Debug + Serialize> PairedFilte
             r,
         }
     }
+    pub fn newb(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Box<dyn Filter2ch> {
+        Box::new(Self::new(l, r))
+    }
     pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         (self.l.apply(l), self.r.apply(r))
     }
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap()
+        String::from(r#"{"_ft":"FTPaired","l":"#)
+            + &self.l.to_json()
+            + r#","r":"#
+            + &self.r.to_json()
+            + r#"}"#
     }
 }
 
-impl<F1: Filter + Debug + Serialize, F2: Filter + Debug + Serialize> Filter2ch
-    for PairedFilter<F1, F2>
-{
+impl Filter2ch for PairedFilter {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         self.apply(l, r)
     }
@@ -741,7 +784,7 @@ pub fn vec_to_json(vf: &VecFilters) -> String {
     s.to_string() + "]"
 }
 
-pub fn vec2_to_json(vf2: &VecFilters2ch) -> String {
+pub fn vec2ch_to_json(vf2: &VecFilters2ch) -> String {
     if vf2.len() == 0 {
         return String::from("[]");
     }
@@ -750,6 +793,90 @@ pub fn vec2_to_json(vf2: &VecFilters2ch) -> String {
         .fold(String::from("["), |s, f| s + &f.to_json() + ",");
     let s = &s[0..s.len() - 1];
     s.to_string() + "]"
+}
+
+#[derive(Serialize, Deserialize)]
+struct _FilterDeserializationStruct {
+    _ft: FilterType,
+}
+
+#[derive(Serialize, Deserialize)]
+struct _PairedFilterDeserializationStruct {
+    _ft: FilterType,
+    l: serde_json::Value,
+    r: serde_json::Value,
+}
+
+pub fn json_to_filter(s: &str) -> Box<dyn Filter> {
+    let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("json_to_filter returned NopFilter because err={}", e);
+            return NopFilter::newb();
+        }
+    };
+    match x._ft {
+        FilterType::FTNop => Box::<NopFilter>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTVolume => Box::<Volume>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTDelay => Box::<Delay>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTBiquad => Box::<BiquadFilter>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTConvolver => Box::<Convolver>::new(serde_json::from_str(s).unwrap()),
+        _ => {
+            log::error!(
+                "json_to_filter found unsupported FilterType={:?} and returned NopFilter",
+                x._ft
+            );
+            NopFilter::newb()
+        }
+    }
+}
+
+pub fn json_to_filter2ch(s: &str) -> Box<dyn Filter2ch> {
+    let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!(
+                "json_to_filter2 returned PairedFilter(NopFilter,NopFilter) because err={}",
+                e
+            );
+            return PairedFilter::newb(NopFilter::newb(), NopFilter::newb());
+        }
+    };
+    match x._ft {
+        FilterType::FTVocalRemover => Box::<VocalRemover>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTPaired => {
+            let tmp: _PairedFilterDeserializationStruct = serde_json::from_str(s).unwrap();
+            PairedFilter::newb(
+                json_to_filter(&format!("{}", tmp.l)),
+                json_to_filter(&format!("{}", tmp.r)),
+            )
+        }
+        _ => {
+            log::error!(
+                "json_to_filter2 found unsupported FilterType={:?} and returned PairedFilter(NopFilter,NopFilter)",
+                x._ft
+            );
+            PairedFilter::newb(NopFilter::newb(), NopFilter::newb())
+        }
+    }
+}
+
+pub fn json_to_vec(s: &str) -> VecFilters {
+    let mut vf = VecFilters::new();
+    let v: Vec<serde_json::Value> = serde_json::from_str(s).unwrap_or(Vec::new());
+    for x in v {
+        vf.push(json_to_filter(&format!("{}", x)));
+    }
+    vf
+}
+
+pub fn json_to_vec2ch(s: &str) -> VecFilters2ch {
+    let mut vf = VecFilters2ch::new();
+    let v: Vec<serde_json::Value> = serde_json::from_str(s).unwrap_or(Vec::new());
+    for x in v {
+        vf.push(json_to_filter2ch(&format!("{}", x)));
+    }
+    vf
 }
 
 pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
@@ -1033,18 +1160,23 @@ mod tests {
     #[test]
     fn test_delay_to_json() {
         let t = Delay::new(200, 48000);
+        let want = r#"{"_ft":"FTDelay","tapnum":9600}"#;
         let got = t.to_json();
-        assert_eq!(r#"{"_ft":"FTDelay","tapnum":9600}"#, got);
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
     fn test_volume_to_json() {
         let t = Volume::new(VolumeCurve::Gain, -6.0);
+        let want = r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}"#;
         let got = t.to_json();
-        assert_eq!(
-            r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}"#,
-            got
-        );
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
@@ -1056,44 +1188,72 @@ mod tests {
             -3.5,
             BQFParam::Q(0.707),
         );
+        let want = r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","rate":48000.0,"f0":1234.0,"gain":-3.5,"param":{"Q":0.707},"coeff":{"b0":1.0929853,"b1":-1.9739647,"b2":0.9070147,"a0":1.1391279,"a1":-1.9739647,"a2":0.86087215,"b0_div_a0":0.95949304,"b1_div_a0":-1.7328737,"b2_div_a0":0.7962361,"a1_div_a0":-1.7328737,"a2_div_a0":0.7557292}}"#;
         let got = t.to_json();
-        assert_eq!(
-            r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","rate":48000.0,"f0":1234.0,"gain":-3.5,"param":{"Q":0.707},"coeff":{"b0":1.0929853,"b1":-1.9739647,"b2":0.9070147,"a0":1.1391279,"a1":-1.9739647,"a2":0.86087215,"b0_div_a0":0.95949304,"b1_div_a0":-1.7328737,"b2_div_a0":0.7962361,"a1_div_a0":-1.7328737,"a2_div_a0":0.7557292}}"#,
-            got
-        );
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
     fn test_convolver_to_json() {
         let t = Convolver::new(&[0.01, 0.02, 0.03, 0.04]);
+        let want = r#"{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]}"#;
         let got = t.to_json();
-        assert_eq!(r#"{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]}"#, got);
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
     fn test_nop_to_json() {
         let t = NopFilter::new();
+        let want = r#"{"_ft":"FTNop"}"#;
         let got = t.to_json();
-        assert_eq!(r#"{"_ft":"FTNop"}"#, got);
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
-    fn test_voiceremover_to_json() {
+    fn test_vocalremover_to_json() {
         let t = VocalRemover::new(VocalRemoverType::RemoveCenterBW(48000.0, 200.0, 4000.0));
+        let want = r#"{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[48000.0,200.0,4000.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":176.40001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00013327599,"b1":0.00026655197,"b2":0.00013327599,"a0":1.0081643,"a1":-1.9994669,"a2":0.9918357,"b0_div_a0":0.0001321967,"b1_div_a0":0.0002643934,"b2_div_a0":0.0001321967,"a1_div_a0":-1.9832748,"a2_div_a0":0.98380363}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":226.75735,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99977976,"b1":-1.9995595,"b2":0.99977976,"a0":1.0104944,"a1":-1.999119,"a2":0.98950565,"b0_div_a0":0.9893967,"b1_div_a0":-1.9787934,"b2_div_a0":0.9893967,"a1_div_a0":-1.9783574,"a2_div_a0":0.9792293}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":4535.147,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.9144524,"b1":-1.8289047,"b2":0.9144524,"a0":1.197804,"a1":-1.6578095,"a2":0.802196,"b0_div_a0":0.7634408,"b1_div_a0":-1.5268816,"b2_div_a0":0.7634408,"a1_div_a0":-1.3840407,"a2_div_a0":0.6697223}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":3528.0,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.052377164,"b1":0.10475433,"b2":0.052377164,"a0":1.1575576,"a1":-1.7904913,"a2":0.8424424,"b0_div_a0":0.045247998,"b1_div_a0":0.090495996,"b2_div_a0":0.045247998,"a1_div_a0":-1.5467838,"a2_div_a0":0.7277758}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":176.40001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00013327599,"b1":0.00026655197,"b2":0.00013327599,"a0":1.0081643,"a1":-1.9994669,"a2":0.9918357,"b0_div_a0":0.0001321967,"b1_div_a0":0.0002643934,"b2_div_a0":0.0001321967,"a1_div_a0":-1.9832748,"a2_div_a0":0.98380363}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":226.75735,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99977976,"b1":-1.9995595,"b2":0.99977976,"a0":1.0104944,"a1":-1.999119,"a2":0.98950565,"b0_div_a0":0.9893967,"b1_div_a0":-1.9787934,"b2_div_a0":0.9893967,"a1_div_a0":-1.9783574,"a2_div_a0":0.9792293}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":4535.147,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.9144524,"b1":-1.8289047,"b2":0.9144524,"a0":1.197804,"a1":-1.6578095,"a2":0.802196,"b0_div_a0":0.7634408,"b1_div_a0":-1.5268816,"b2_div_a0":0.7634408,"a1_div_a0":-1.3840407,"a2_div_a0":0.6697223}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":3528.0,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.052377164,"b1":0.10475433,"b2":0.052377164,"a0":1.1575576,"a1":-1.7904913,"a2":0.8424424,"b0_div_a0":0.045247998,"b1_div_a0":0.090495996,"b2_div_a0":0.045247998,"a1_div_a0":-1.5467838,"a2_div_a0":0.7277758}}}"#;
         let got = t.to_json();
-        assert_eq!(
-            r#"{"_ft":"FTVoiceRemover","vrtype":{"RemoveCenterBW":[48000.0,200.0,4000.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":141.40001,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.000085651875,"b1":0.00017130375,"b2":0.000085651875,"a0":1.0130892,"a1":-1.9996574,"a2":0.98691076,"b0_div_a0":0.000084545245,"b1_div_a0":0.00016909049,"b2_div_a0":0.000084545245,"a1_div_a0":-1.9738216,"a2_div_a0":0.97415984}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":282.88544,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.9996573,"b1":-1.9993145,"b2":0.9996573,"a0":1.0261818,"a1":-1.998629,"a2":0.9738181,"b0_div_a0":0.9741522,"b1_div_a0":-1.9483044,"b2_div_a0":0.9741522,"a1_div_a0":-1.9476364,"a2_div_a0":0.9489723}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":5657.7085,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.8690345,"b1":-1.738069,"b2":0.8690345,"a0":1.4771749,"a1":-1.476138,"a2":0.5228251,"b0_div_a0":0.5883085,"b1_div_a0":-1.176617,"b2_div_a0":0.5883085,"a1_div_a0":-0.99929804,"a2_div_a0":0.35393584}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":2828.0,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.033869654,"b1":0.06773931,"b2":0.033869654,"a0":1.2558608,"a1":-1.8645214,"a2":0.74413913,"b0_div_a0":0.026969275,"b1_div_a0":0.05393855,"b2_div_a0":0.026969275,"a1_div_a0":-1.4846561,"a2_div_a0":0.5925331}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":141.40001,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.000085651875,"b1":0.00017130375,"b2":0.000085651875,"a0":1.0130892,"a1":-1.9996574,"a2":0.98691076,"b0_div_a0":0.000084545245,"b1_div_a0":0.00016909049,"b2_div_a0":0.000084545245,"a1_div_a0":-1.9738216,"a2_div_a0":0.97415984}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":282.88544,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.9996573,"b1":-1.9993145,"b2":0.9996573,"a0":1.0261818,"a1":-1.998629,"a2":0.9738181,"b0_div_a0":0.9741522,"b1_div_a0":-1.9483044,"b2_div_a0":0.9741522,"a1_div_a0":-1.9476364,"a2_div_a0":0.9489723}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":5657.7085,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.8690345,"b1":-1.738069,"b2":0.8690345,"a0":1.4771749,"a1":-1.476138,"a2":0.5228251,"b0_div_a0":0.5883085,"b1_div_a0":-1.176617,"b2_div_a0":0.5883085,"a1_div_a0":-0.99929804,"a2_div_a0":0.35393584}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":2828.0,"gain":0.0,"param":{"Q":0.707},"coeff":{"b0":0.033869654,"b1":0.06773931,"b2":0.033869654,"a0":1.2558608,"a1":-1.8645214,"a2":0.74413913,"b0_div_a0":0.026969275,"b1_div_a0":0.05393855,"b2_div_a0":0.026969275,"a1_div_a0":-1.4846561,"a2_div_a0":0.5925331}}}"#,
-            got
-        );
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter2ch(want).to_json();
+        assert_eq!(got, got2);
     }
 
     #[test]
     fn test_pairedfilter_to_json() {
-        let t = PairedFilter::new(Convolver::new(&[0.01, 0.02, 0.03, 0.04]), NopFilter::new());
-        let got = t.to_json();
-        assert_eq!(
-            r#"{"_ft":"FTPaired","l":{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]},"r":{"_ft":"FTNop"}}"#,
-            got
+        let t = PairedFilter::new(
+            Convolver::newb(&[0.01, 0.02, 0.03, 0.04]),
+            NopFilter::newb(),
         );
+        let want = r#"{"_ft":"FTPaired","l":{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]},"r":{"_ft":"FTNop"}}"#;
+        let got = t.to_json();
+        assert_eq!(want, got);
+        // deserialize
+        let got2 = json_to_filter2ch(want).to_json();
+        assert_eq!(got, got2);
+    }
+
+    #[test]
+    fn test_vec_to_json() {
+        let t = r#"[{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872},{"_ft":"FTDelay","tapnum":8820}]"#;
+        let got = vec_to_json(&json_to_vec(t));
+        assert_eq!(t, got);
+    }
+
+    #[test]
+    fn test_vec2ch_to_json() {
+        let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[44100.0,240.0,6600.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":211.68001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00022739172,"b1":0.00045478344,"b2":0.00022739172,"a0":1.0106629,"a1":-1.9990904,"a2":0.9893371,"b0_div_a0":0.00022499265,"b1_div_a0":0.0004499853,"b2_div_a0":0.00022499265,"a1_div_a0":-1.9779992,"a2_div_a0":0.9788992}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":272.10883,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99962425,"b1":-1.9992485,"b2":0.99962425,"a0":1.0137055,"a1":-1.9984971,"a2":0.98629445,"b0_div_a0":0.98610914,"b1_div_a0":-1.9722183,"b2_div_a0":0.98610914,"a1_div_a0":-1.971477,"a2_div_a0":0.9729596}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":7482.9927,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.7417508,"b1":-1.4835016,"b2":0.7417508,"a0":1.3095274,"a1":-0.96700317,"a2":0.6904726,"b0_div_a0":0.56642634,"b1_div_a0":-1.1328527,"b2_div_a0":0.56642634,"a1_div_a0":-0.73843676,"a2_div_a0":0.5272685}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":5821.2,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.16233361,"b1":0.32466722,"b2":0.16233361,"a0":1.2607896,"a1":-1.3506656,"a2":0.73921037,"b0_div_a0":0.12875551,"b1_div_a0":0.25751102,"b2_div_a0":0.12875551,"a1_div_a0":-1.0712855,"a2_div_a0":0.58630747}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":211.68001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00022739172,"b1":0.00045478344,"b2":0.00022739172,"a0":1.0106629,"a1":-1.9990904,"a2":0.9893371,"b0_div_a0":0.00022499265,"b1_div_a0":0.0004499853,"b2_div_a0":0.00022499265,"a1_div_a0":-1.9779992,"a2_div_a0":0.9788992}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":272.10883,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99962425,"b1":-1.9992485,"b2":0.99962425,"a0":1.0137055,"a1":-1.9984971,"a2":0.98629445,"b0_div_a0":0.98610914,"b1_div_a0":-1.9722183,"b2_div_a0":0.98610914,"a1_div_a0":-1.971477,"a2_div_a0":0.9729596}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":7482.9927,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.7417508,"b1":-1.4835016,"b2":0.7417508,"a0":1.3095274,"a1":-0.96700317,"a2":0.6904726,"b0_div_a0":0.56642634,"b1_div_a0":-1.1328527,"b2_div_a0":0.56642634,"a1_div_a0":-0.73843676,"a2_div_a0":0.5272685}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":5821.2,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.16233361,"b1":0.32466722,"b2":0.16233361,"a0":1.2607896,"a1":-1.3506656,"a2":0.73921037,"b0_div_a0":0.12875551,"b1_div_a0":0.25751102,"b2_div_a0":0.12875551,"a1_div_a0":-1.0712855,"a2_div_a0":0.58630747}}}]"#;
+        let got = vec2ch_to_json(&json_to_vec2ch(t));
+        assert_eq!(t, got);
     }
 }
