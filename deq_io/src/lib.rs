@@ -1,10 +1,4 @@
-use deq_filter as f;
-use deq_filter::Convolver;
-use deq_filter::Delay;
-use deq_filter::Filter;
-use deq_filter::{BQFParam, BQFType, BiquadFilter};
-use deq_filter::{VocalRemover, VocalRemoverType};
-use deq_filter::{Volume, VolumeCurve};
+use deq_filter::*;
 use portaudio as pa;
 use std::error;
 use std::fmt;
@@ -155,7 +149,7 @@ impl Input for WaveReader {
         let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
         let ch = self.info.output_ch;
         let uframe = self.info.frame as usize * ch as usize;
-        let mut buf = f::i16_to_f32(&buf);
+        let mut buf = i16_to_f32(&buf);
         let zero_paddings = uframe - (buf.len() as usize % uframe);
         let zeros = vec![0.0; zero_paddings];
         buf.extend(zeros);
@@ -483,7 +477,7 @@ impl Input for PipeReader {
                         //     buf[buflen - idx - 1] = 0;
                         // }
                         // log::trace!("read {} bytes from pipe", n);
-                        // let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
+                        // let data = i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         // tx.send(data).unwrap();
                         // status_tx.send(Status::TxAck(IO::Input)).unwrap();
 
@@ -494,7 +488,7 @@ impl Input for PipeReader {
                     } else {
                         // buf.read
                         log::trace!("read {} bytes from pipe", n);
-                        let data = f::i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
+                        let data = i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         tx.send(data).unwrap();
                         status_tx.send(Status::TxAck(IO::Input)).unwrap();
                     };
@@ -552,15 +546,15 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
 fn apply_filters(
     l: &[f32],
     r: &[f32],
-    lfs: &mut f::VecFilters,
-    rfs: &mut f::VecFilters,
+    lfs: &mut VecFilters,
+    rfs: &mut VecFilters,
 ) -> (Vec<f32>, Vec<f32>) {
     let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
     (l, r)
 }
 
-fn apply_filters2(l: &[f32], r: &[f32], sfs: &mut f::VecFilters2ch) -> (Vec<f32>, Vec<f32>) {
+fn apply_filters2(l: &[f32], r: &[f32], sfs: &mut VecFilters2ch) -> (Vec<f32>, Vec<f32>) {
     assert_eq!(l.len(), r.len());
     let debug = l.len();
 
@@ -588,13 +582,14 @@ fn apply_filters2(l: &[f32], r: &[f32], sfs: &mut f::VecFilters2ch) -> (Vec<f32>
 #[derive(Debug, Default)]
 pub struct DSP {
     info: Info,
-    lvf: f::VecFilters,
-    rvf: f::VecFilters,
-    vf2: f::VecFilters2ch,
+    lvf: VecFilters,
+    rvf: VecFilters,
+    vf2: VecFilters2ch,
 }
 
 impl DSP {
-    pub fn new(frame: Frame, rate: Rate, vf2: f::VecFilters2ch) -> Self {
+    pub fn new(frame: Frame, rate: Rate, path_vf2: &str) -> Self {
+        let vf2 = load_vec2ch(path_vf2, rate as f32);
         let p = DSP {
             info: Info {
                 frame,
@@ -630,10 +625,10 @@ impl Processor for DSP {
             status_tx.send(Status::RxAck(IO::Processor)).unwrap();
             let start = time::Instant::now();
             // --- measure latency ---
-            let (l, r) = f::from_interleaved(&buf);
+            let (l, r) = from_interleaved(&buf);
             let (l, r) = apply_filters(&l, &r, &mut self.lvf, &mut self.rvf);
             let (l, r) = apply_filters2(&l, &r, &mut self.vf2);
-            let buf = f::to_interleaved(&l, &r);
+            let buf = to_interleaved(&l, &r);
             // -----------------------
             let end = start.elapsed();
             status_tx.send(Status::Latency(end.as_micros() as u32)).ok();
@@ -651,4 +646,59 @@ impl Processor for DSP {
         status_tx.send(Status::TxFin(IO::Processor)).unwrap();
         Ok(())
     }
+}
+
+fn load_vec2ch(path: &str, fs: f32) -> VecFilters2ch {
+    match std::fs::read_to_string(path) {
+        Ok(s) => json_to_vec2ch(&s, fs),
+        Err(_) => {
+            let default_filters = setup_vf2(fs);
+            log::warn!(
+                "{} not found so loaded default config: {}",
+                path,
+                vec2ch_to_json(&default_filters)
+            );
+            default_filters
+        }
+    }
+}
+
+fn setup_vf(fs: f32) -> (VecFilters, VecFilters) {
+    let lvf: VecFilters = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Gain, -6.0),
+        // Delay::newb(200, fs as usize),
+        NopFilter::newb(),
+    ];
+    let rvf: VecFilters = vec![
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // Volume::newb(VolumeCurve::Gain, -6.0),
+        // Delay::newb(200, fs as usize),
+        NopFilter::newb(),
+    ];
+    log::info!("filters (L ch): {}", vec_to_json(&lvf));
+    log::info!("filters (R ch): {}", vec_to_json(&rvf));
+    (lvf, rvf)
+}
+
+fn setup_vf2(fs: f32) -> VecFilters2ch {
+    let pf = PairedFilter::newb(
+        // NopFilter::newb(),
+        // NopFilter::newb(),
+        Volume::newb(VolumeCurve::Gain, -6.0),
+        Volume::newb(VolumeCurve::Gain, -6.0),
+        fs,
+    );
+    let vf2: VecFilters2ch = vec![
+        pf,
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240.0, 4400.0), fs),
+    ];
+    log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
+    vf2
 }
