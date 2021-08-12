@@ -121,7 +121,7 @@ fn read_int(s: &str) -> Result<usize, io::IOError> {
 
 fn load_vec2ch(path: &str, fs: f32) -> VecFilters2ch {
     match fs::read_to_string(path) {
-        Ok(s) => json_to_vec2ch(&s),
+        Ok(s) => json_to_vec2ch(&s, fs),
         Err(_) => {
             let default_filters = setup_vf2(fs);
             log::warn!(
@@ -162,12 +162,13 @@ fn setup_vf2(fs: f32) -> VecFilters2ch {
         // NopFilter::newb(),
         Volume::newb(VolumeCurve::Gain, -6.0),
         Volume::newb(VolumeCurve::Gain, -6.0),
+        fs,
     );
     let vf2: VecFilters2ch = vec![
         pf,
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 240.0, 4400.0)),
+        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240.0, 4400.0), fs),
     ];
     log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
     vf2
