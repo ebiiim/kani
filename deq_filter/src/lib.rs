@@ -68,6 +68,11 @@ pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
     a
 }
 
+pub type BoxedFilter = Box<dyn Filter + Send>;
+pub type VecFilters = Vec<BoxedFilter>;
+pub type BoxedFilter2ch = Box<dyn Filter2ch + Send>;
+pub type VecFilters2ch = Vec<BoxedFilter2ch>;
+
 /// FilterType includes all filters and used for serialize/deserialize.
 /// Each Filter has `_ft` field to hold this value.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -95,9 +100,24 @@ pub trait Filter {
     fn init(&mut self);
 }
 
-impl Debug for dyn Filter {
+impl Debug for dyn Filter + Send {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "filter::Filter(dyn) {}", self.to_json())
+    }
+}
+
+impl Debug for dyn Filter2ch + Send {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "filter::Filter2ch(dyn) {}", self.to_json())
+    }
+}
+
+impl Clone for BoxedFilter {
+    fn clone(&self) -> BoxedFilter {
+        let j = self.to_json();
+        let mut cloned = json_to_filter(&j);
+        cloned.init();
+        cloned
     }
 }
 
@@ -113,7 +133,16 @@ impl Debug for dyn Filter2ch {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+impl Clone for BoxedFilter2ch {
+    fn clone(&self) -> BoxedFilter2ch {
+        let j = self.to_json();
+        let mut cloned = json_to_filter2ch(&j);
+        cloned.init();
+        cloned
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Delay {
     _ft: FilterType,
     sample_rate: f32,
@@ -155,7 +184,7 @@ impl Delay {
             self.tapnum
         );
     }
-    pub fn newb(time_ms: usize, sample_rate: f32) -> Box<dyn Filter> {
+    pub fn newb(time_ms: usize, sample_rate: f32) -> BoxedFilter {
         Box::new(Self::new(time_ms, sample_rate))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -189,7 +218,7 @@ impl Filter for Delay {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Volume {
     _ft: FilterType,
     curve: VolumeCurve,
@@ -233,7 +262,7 @@ impl Volume {
             self.ratio
         );
     }
-    pub fn newb(curve: VolumeCurve, val: f32) -> Box<dyn Filter> {
+    pub fn newb(curve: VolumeCurve, val: f32) -> BoxedFilter {
         Box::new(Self::new(curve, val))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -294,7 +323,7 @@ impl Default for BQFParam {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct BQFCoeff {
     b0: f32,
     b1: f32,
@@ -415,7 +444,7 @@ impl BQFCoeff {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct BiquadFilter {
     _ft: FilterType,
     /// BQF type
@@ -477,7 +506,7 @@ impl BiquadFilter {
         f0: f32,
         gain: f32,
         param: BQFParam,
-    ) -> Box<dyn Filter> {
+    ) -> BoxedFilter {
         Box::new(Self::new(filter_type, rate, f0, gain, param))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -520,7 +549,7 @@ impl Filter for BiquadFilter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Convolver {
     _ft: FilterType,
     /// impulse response
@@ -553,7 +582,7 @@ impl Convolver {
         self.iir.reverse();
         self.buf = VecDeque::from(vec![0.0; self.ir.len()]);
     }
-    pub fn newb(ir: &[f32]) -> Box<dyn Filter> {
+    pub fn newb(ir: &[f32]) -> BoxedFilter {
         Box::new(Self::new(ir))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -611,7 +640,7 @@ impl Default for VocalRemoverType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct VocalRemover {
     _ft: FilterType,
     vrtype: VocalRemoverType,
@@ -675,7 +704,7 @@ impl VocalRemover {
             _ => {}
         }
     }
-    pub fn newb(vrtype: VocalRemoverType) -> Box<dyn Filter2ch> {
+    pub fn newb(vrtype: VocalRemoverType) -> BoxedFilter2ch {
         Box::new(Self::new(vrtype))
     }
     pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
@@ -734,7 +763,7 @@ impl Filter2ch for VocalRemover {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NopFilter {
     _ft: FilterType,
 }
@@ -750,7 +779,7 @@ impl NopFilter {
     pub fn init(&mut self) {
         log::debug!("filter::NopFilter");
     }
-    pub fn newb() -> Box<dyn Filter> {
+    pub fn newb() -> BoxedFilter {
         Box::new(Self::new())
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -776,15 +805,15 @@ impl Filter for NopFilter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PairedFilter {
     _ft: FilterType,
-    l: Box<dyn Filter>,
-    r: Box<dyn Filter>,
+    l: BoxedFilter,
+    r: BoxedFilter,
 }
 
 impl PairedFilter {
-    pub fn new(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Self {
+    pub fn new(l: BoxedFilter, r: BoxedFilter) -> Self {
         let mut f = Self {
             _ft: FilterType::FTPaired,
             l,
@@ -798,7 +827,7 @@ impl PairedFilter {
         self.l.init();
         self.r.init();
     }
-    pub fn newb(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Box<dyn Filter2ch> {
+    pub fn newb(l: BoxedFilter, r: BoxedFilter) -> BoxedFilter2ch {
         Box::new(Self::new(l, r))
     }
     pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
@@ -824,10 +853,6 @@ impl Filter2ch for PairedFilter {
         self.init();
     }
 }
-
-pub type VecFilters = Vec<Box<dyn Filter>>;
-
-pub type VecFilters2ch = Vec<Box<dyn Filter2ch>>;
 
 pub fn vec_to_json(vf: &VecFilters) -> String {
     if vf.len() == 0 {
@@ -863,7 +888,7 @@ struct _PairedFilterDeserializationStruct {
     r: serde_json::Value,
 }
 
-pub fn json_to_filter(s: &str) -> Box<dyn Filter> {
+pub fn json_to_filter(s: &str) -> BoxedFilter {
     let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
         Ok(v) => v,
         Err(e) => {
@@ -907,7 +932,7 @@ pub fn json_to_filter(s: &str) -> Box<dyn Filter> {
     }
 }
 
-pub fn json_to_filter2ch(s: &str) -> Box<dyn Filter2ch> {
+pub fn json_to_filter2ch(s: &str) -> BoxedFilter2ch {
     let x: _FilterDeserializationStruct = match serde_json::from_str(s) {
         Ok(v) => v,
         Err(e) => {
@@ -981,7 +1006,7 @@ pub fn generate_inverse(a: &[f32]) -> Vec<f32> {
     a.iter().map(|x| *x * -1.0).collect()
 }
 
-pub fn dump_ir(v: &mut Vec<Box<dyn Filter>>, n: usize) -> String {
+pub fn dump_ir(v: &mut Vec<BoxedFilter>, n: usize) -> String {
     let buf = generate_impulse(n);
     let buf = v.iter_mut().fold(buf, |x, f| f.apply(&x));
     buf.iter()

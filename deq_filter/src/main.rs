@@ -16,7 +16,7 @@ fn run_dump_coeffs() {
 fn run_dump_ir() {
     let fs = 48000.0;
     let n = f::nextpow2(fs / 20.0);
-    let mut v: Vec<Box<dyn Filter>> = vec![
+    let mut v: f::VecFilters = vec![
         BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),

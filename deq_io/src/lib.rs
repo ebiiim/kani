@@ -65,7 +65,7 @@ pub enum Status {
     Interpolated(IO),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Info {
     pub frame: Frame,
     pub rate: Rate,
@@ -75,22 +75,27 @@ pub struct Info {
 
 pub trait Input {
     fn info(&self) -> Info;
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
+    fn run(
+        &mut self,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError>;
 }
 
 pub trait Output {
     fn info(&self) -> Info;
-    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError>;
+    fn run(&mut self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>)
+        -> Result<(), IOError>;
 }
 
 pub trait Processor {
+    fn info(&self) -> Info;
     fn run(
-        &self,
+        &mut self,
         rx: Receiver<Vec<f32>>,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
     ) -> Result<(), IOError>;
-    fn info(&self) -> Info;
 }
 
 #[derive(Debug)]
@@ -134,7 +139,11 @@ impl Input for WaveReader {
     fn info(&self) -> Info {
         self.info
     }
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+    fn run(
+        &mut self,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError> {
         let reader = hound::WavReader::open(&self.path);
         if let Err(e) = reader {
             log::error!("could not open wav err={}", e);
@@ -189,7 +198,7 @@ impl Input for WaveReader {
 //     }
 // }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PAReader {
     info: Info,
     dev: usize,
@@ -216,7 +225,11 @@ impl Input for PAReader {
     fn info(&self) -> Info {
         self.info
     }
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+    fn run(
+        &mut self,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError> {
         let pa = pa::PortAudio::new();
         if pa.is_err() {
             log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -285,7 +298,7 @@ impl Input for PAReader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PAWriter {
     info: Info,
     dev: usize,
@@ -312,7 +325,11 @@ impl Output for PAWriter {
     fn info(&self) -> Info {
         self.info
     }
-    fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+    fn run(
+        &mut self,
+        rx: Receiver<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError> {
         let pa = pa::PortAudio::new();
         if pa.is_err() {
             log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -393,7 +410,7 @@ impl Output for PAWriter {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PipeReader {
     info: Info,
     cmd: String,
@@ -422,7 +439,11 @@ impl Input for PipeReader {
     fn info(&self) -> Info {
         self.info
     }
-    fn run(&self, tx: SyncSender<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+    fn run(
+        &mut self,
+        tx: SyncSender<Vec<f32>>,
+        status_tx: SyncSender<Status>,
+    ) -> Result<(), IOError> {
         let args: Vec<&str> = self.args.split(' ').collect();
 
         let mut process = match Command::new(&self.cmd)
@@ -528,62 +549,18 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo,
     Err(IOError::Device)
 }
 
-fn setup_filters(fs: f32) -> (Vec<Box<dyn f::Filter>>, Vec<Box<dyn f::Filter>>) {
-    // init filters
-    let lfs: Vec<Box<dyn f::Filter>> = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Volume::newb(VolumeCurve::Gain, -6.0),
-        // Delay::newb(200, fs as usize),
-        f::NopFilter::newb(),
-    ];
-    let rfs: Vec<Box<dyn f::Filter>> = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
-        // Volume::newb(VolumeCurve::Gain, -6.0),
-        // Delay::newb(200, fs as usize),
-        f::NopFilter::newb(),
-    ];
-    log::info!("filters (L ch): {}", f::vec_to_json(&lfs));
-    log::info!("filters (R ch): {}", f::vec_to_json(&rfs));
-    (lfs, rfs)
-}
-
-fn setup_filters2(fs: f32) -> Vec<Box<dyn f::Filter2ch>> {
-    let pf = f::PairedFilter::newb(
-        // f::NopFilter::newb(),
-        // f::NopFilter::newb(),
-        Volume::newb(VolumeCurve::Gain, -6.0),
-        Volume::newb(VolumeCurve::Gain, -6.0),
-    );
-    let sfs: Vec<Box<dyn f::Filter2ch>> = vec![
-        pf,
-        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
-        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, 240.0, 6600.0)),
-    ];
-    log::info!("filters (L&R ch): {}", f::vec2ch_to_json(&sfs));
-    sfs
-}
-
 fn apply_filters(
     l: &[f32],
     r: &[f32],
-    lfs: &mut Vec<Box<dyn f::Filter>>,
-    rfs: &mut Vec<Box<dyn f::Filter>>,
+    lfs: &mut f::VecFilters,
+    rfs: &mut f::VecFilters,
 ) -> (Vec<f32>, Vec<f32>) {
     let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
     (l, r)
 }
 
-fn apply_filters2(
-    l: &[f32],
-    r: &[f32],
-    sfs: &mut Vec<Box<dyn f::Filter2ch>>,
-) -> (Vec<f32>, Vec<f32>) {
+fn apply_filters2(l: &[f32], r: &[f32], sfs: &mut f::VecFilters2ch) -> (Vec<f32>, Vec<f32>) {
     assert_eq!(l.len(), r.len());
     let debug = l.len();
 
@@ -608,20 +585,28 @@ fn apply_filters2(
     (l, r)
 }
 
+#[derive(Debug, Default)]
 pub struct DSP {
     info: Info,
+    lvf: f::VecFilters,
+    rvf: f::VecFilters,
+    vf2: f::VecFilters2ch,
 }
 
 impl DSP {
-    pub fn new(frame: Frame, rate: Rate) -> Self {
-        DSP {
+    pub fn new(frame: Frame, rate: Rate, vf2: f::VecFilters2ch) -> Self {
+        let p = DSP {
             info: Info {
                 frame,
                 rate,
                 input_ch: 2,
                 output_ch: 2,
             },
-        }
+            vf2,
+            ..Default::default()
+        };
+        log::debug!("io::DSP {:?}", p);
+        p
     }
     pub fn info(&self) -> Info {
         self.info
@@ -633,16 +618,11 @@ impl Processor for DSP {
         self.info
     }
     fn run(
-        &self,
+        &mut self,
         rx: Receiver<Vec<f32>>,
         tx: SyncSender<Vec<f32>>,
         status_tx: SyncSender<Status>,
     ) -> Result<(), IOError> {
-        // init filters
-        let fs = self.info.rate as f32;
-        let (mut lfs, mut rfs) = setup_filters(fs);
-        let mut sfs = setup_filters2(fs);
-
         status_tx.send(Status::RxInit(IO::Processor)).unwrap();
         status_tx.send(Status::TxInit(IO::Processor)).unwrap();
 
@@ -651,8 +631,8 @@ impl Processor for DSP {
             let start = time::Instant::now();
             // --- measure latency ---
             let (l, r) = f::from_interleaved(&buf);
-            let (l, r) = apply_filters(&l, &r, &mut lfs, &mut rfs);
-            let (l, r) = apply_filters2(&l, &r, &mut sfs);
+            let (l, r) = apply_filters(&l, &r, &mut self.lvf, &mut self.rvf);
+            let (l, r) = apply_filters2(&l, &r, &mut self.vf2);
             let buf = f::to_interleaved(&l, &r);
             // -----------------------
             let end = start.elapsed();

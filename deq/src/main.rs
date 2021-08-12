@@ -1,7 +1,9 @@
+use deq_filter as f;
 use deq_io as io;
 use io::Status::*;
 use portaudio as pa;
 use std::env;
+use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::process;
 use std::sync::mpsc::sync_channel;
@@ -9,6 +11,8 @@ use std::thread;
 
 extern crate deq_filter;
 extern crate deq_io;
+
+const PATH_FILTERS: &str = "filters.json";
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const PATH_LIBRESPOT: &str = "librespot";
@@ -115,10 +119,15 @@ fn read_int(s: &str) -> Result<usize, io::IOError> {
     }
 }
 
+fn load_vec2ch(path: &str) -> f::VecFilters2ch {
+    let j = fs::read_to_string(path).unwrap();
+    f::json_to_vec2ch(&j)
+}
+
 pub fn play(
-    r: Box<dyn io::Input + Send>,
-    w: Box<dyn io::Output + Send>,
-    dsp: Box<dyn io::Processor + Send>,
+    mut r: Box<dyn io::Input + Send>,
+    mut w: Box<dyn io::Output + Send>,
+    mut dsp: Box<dyn io::Processor + Send>,
 ) {
     let (tx1, rx1) = sync_channel(0);
     let (tx2, rx2) = sync_channel(0);
@@ -177,6 +186,8 @@ pub fn play(
 }
 
 pub fn start() {
+    let cfg = load_vec2ch(PATH_FILTERS);
+
     let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -255,7 +266,7 @@ pub fn start() {
                         44100,
                         2,
                     );
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -274,7 +285,7 @@ pub fn start() {
                     if let Ok(n) = read_str("file name> ") {
                         let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                        let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -293,7 +304,7 @@ pub fn start() {
                     }
                     let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate);
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, cfg.clone());
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
