@@ -83,9 +83,16 @@ enum FilterType {
     FTVocalRemover,
 }
 
+impl Default for FilterType {
+    fn default() -> Self {
+        FilterType::FTNop
+    }
+}
+
 pub trait Filter {
     fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
     fn to_json(&self) -> String;
+    fn init(&mut self);
 }
 
 impl Debug for dyn Filter {
@@ -97,6 +104,7 @@ impl Debug for dyn Filter {
 pub trait Filter2ch {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
     fn to_json(&self) -> String;
+    fn init(&mut self);
 }
 
 impl Debug for dyn Filter2ch {
@@ -105,9 +113,12 @@ impl Debug for dyn Filter2ch {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Delay {
     _ft: FilterType,
+    sample_rate: f32,
+    time_ms: usize,
+    #[serde(skip)]
     tapnum: usize,
     #[serde(skip)]
     #[serde(default = "VecDeque::new")]
@@ -120,37 +131,31 @@ impl Delay {
     ///
     /// # Panics
     ///
-    /// Panics if it needs more than 1GiB mem.
-    /// See also: Delay::with_tapnum
-    pub fn new(time_ms: usize, sample_rate: usize) -> Self {
-        log::debug!(
-            "filter::Delay time_ms={} sample_rate={}",
-            time_ms,
-            sample_rate
-        );
-        Self::with_tapnum(Self::calc_tapnum(time_ms, sample_rate))
-    }
-    fn calc_tapnum(time_ms: usize, sample_rate: usize) -> usize {
-        time_ms * sample_rate / 1000
-    }
-    /// Initializes Delay with given taps.
-    ///
-    /// # Panics
-    ///
-    /// Panics if tapnum > (2^28) as it needs more than 1GiB mem.
-    /// FYI: tapnum=2^28 means >699000ms delay at 384kHz :D
-    pub fn with_tapnum(tapnum: usize) -> Self {
-        assert!(tapnum <= Self::MAX_TAPNUM, "too long duration");
-        log::debug!("delay tapnum={}", tapnum);
-        let buf: Vec<f32> = vec![0.0; tapnum];
-        let buf = VecDeque::from(buf);
-        Self {
+    /// Panics if (time_ms*sample_rate/1000) > (2^28) as it needs more than 1GiB mem.
+    /// FYI: this means >699000ms delay at 384kHz :D
+    pub fn new(time_ms: usize, sample_rate: f32) -> Self {
+        let mut f = Self {
             _ft: FilterType::FTDelay,
-            tapnum,
-            buf,
-        }
+            sample_rate,
+            time_ms,
+            ..Default::default()
+        };
+        f.init();
+        f
     }
-    pub fn newb(time_ms: usize, sample_rate: usize) -> Box<dyn Filter> {
+    pub fn init(&mut self) {
+        self.tapnum = (self.time_ms as i64 * self.sample_rate as i64 / 1000) as usize;
+        assert!(self.tapnum <= Self::MAX_TAPNUM, "too long duration");
+        log::trace!("delay tapnum={}", self.tapnum);
+        self.buf = VecDeque::from(vec![0.0; self.tapnum]);
+        log::debug!(
+            "filter::Delay time_ms={} sample_rate={} tapnum={}",
+            self.time_ms,
+            self.sample_rate,
+            self.tapnum
+        );
+    }
+    pub fn newb(time_ms: usize, sample_rate: f32) -> Box<dyn Filter> {
         Box::new(Self::new(time_ms, sample_rate))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
@@ -179,13 +184,17 @@ impl Filter for Delay {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Volume {
     _ft: FilterType,
     curve: VolumeCurve,
     val: f32,
+    #[serde(skip)]
     ratio: f32,
 }
 
@@ -195,19 +204,34 @@ pub enum VolumeCurve {
     Gain,
 }
 
+impl Default for VolumeCurve {
+    fn default() -> Self {
+        VolumeCurve::Linear
+    }
+}
+
 impl Volume {
     pub fn new(curve: VolumeCurve, val: f32) -> Self {
-        let ratio = match curve {
-            VolumeCurve::Linear => val,
-            VolumeCurve::Gain => 10.0f32.powf(val / 20.0),
-        };
-        log::debug!("filter::Volume {:?}({})=>{}", curve, val, ratio);
-        Self {
+        let mut f = Self {
             _ft: FilterType::FTVolume,
             curve,
             val,
-            ratio,
-        }
+            ..Default::default()
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        self.ratio = match self.curve {
+            VolumeCurve::Linear => self.val,
+            VolumeCurve::Gain => 10.0f32.powf(self.val / 20.0),
+        };
+        log::debug!(
+            "filter::Volume {:?}({})=>{}",
+            self.curve,
+            self.val,
+            self.ratio
+        );
     }
     pub fn newb(curve: VolumeCurve, val: f32) -> Box<dyn Filter> {
         Box::new(Self::new(curve, val))
@@ -230,6 +254,9 @@ impl Filter for Volume {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -245,6 +272,12 @@ pub enum BQFType {
     HighShelf,
 }
 
+impl Default for BQFType {
+    fn default() -> Self {
+        BQFType::LowPass
+    }
+}
+
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum BQFParam {
     // Q factor
@@ -255,7 +288,13 @@ pub enum BQFParam {
     S(f32),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl Default for BQFParam {
+    fn default() -> Self {
+        BQFParam::Q(0.707)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BQFCoeff {
     b0: f32,
     b1: f32,
@@ -376,11 +415,7 @@ impl BQFCoeff {
     }
 }
 
-fn _a2f32() -> [f32; 2] {
-    [0.0, 0.0]
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BiquadFilter {
     _ft: FilterType,
     /// BQF type
@@ -395,42 +430,46 @@ pub struct BiquadFilter {
     param: BQFParam,
     /// input delay buffer
     #[serde(skip)]
-    #[serde(default = "_a2f32")]
     buf_x: [f32; 2],
     /// output delay buffer
     #[serde(skip)]
-    #[serde(default = "_a2f32")]
     buf_y: [f32; 2],
     /// coefficients
+    #[serde(skip)]
     coeff: BQFCoeff,
 }
 
 impl BiquadFilter {
     /// Biquad Filter implementation based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
     pub fn new(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Self {
-        // validation
-        let mut f0 = f0;
-        if f0 >= rate / 2.0 {
-            f0 = (rate / 2.0) - 2.0;
-        }
-        if f0 <= 0.0 {
-            f0 = 2.0;
-        }
-
-        let coeff = BQFCoeff::new(&filter_type, rate, f0, gain, &param);
-        let bqf = BiquadFilter {
+        let mut f = Self {
             _ft: FilterType::FTBiquad,
             filter_type,
             rate,
             f0,
             gain,
             param,
-            buf_x: [0.0; 2],
-            buf_y: [0.0; 2],
-            coeff,
+            ..Default::default()
         };
-        log::debug!("filter::BiquadFilter {:?}", bqf);
-        bqf
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        // validation
+        if self.f0 >= self.rate / 2.0 {
+            self.f0 = (self.rate / 2.0) - 2.0;
+        }
+        if self.f0 <= 0.0 {
+            self.f0 = 2.0;
+        }
+        self.coeff = BQFCoeff::new(
+            &self.filter_type,
+            self.rate,
+            self.f0,
+            self.gain,
+            &self.param,
+        );
+        log::debug!("filter::BiquadFilter {:?}", self);
     }
     pub fn newb(
         filter_type: BQFType,
@@ -476,16 +515,21 @@ impl Filter for BiquadFilter {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Convolver {
     _ft: FilterType,
     /// impulse response
     ir: Vec<f32>,
+    /// inverse(ir)
+    #[serde(skip)]
+    iir: Vec<f32>,
     /// ring buffer
     #[serde(skip)]
-    #[serde(default = "VecDeque::new")]
     buf: VecDeque<f32>,
 }
 
@@ -495,21 +539,25 @@ impl Convolver {
     ///   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
     ///   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
     pub fn new(ir: &[f32]) -> Self {
-        log::debug!("filter::Convolver ir.len()={}", ir.len());
-        let buf = vec![0.0; ir.len()];
-        let mut ir = ir.to_vec();
-        ir.reverse();
-        Self {
+        let mut f = Self {
             _ft: FilterType::FTConvolver,
-            ir,
-            buf: VecDeque::from(buf),
-        }
+            ir: ir.to_vec(),
+            ..Default::default()
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        log::debug!("filter::Convolver ir.len()={}", self.ir.len());
+        self.iir = self.ir.clone();
+        self.iir.reverse();
+        self.buf = VecDeque::from(vec![0.0; self.ir.len()]);
     }
     pub fn newb(ir: &[f32]) -> Box<dyn Filter> {
         Box::new(Self::new(ir))
     }
     pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
-        if self.ir.is_empty() {
+        if self.iir.is_empty() {
             return xs.to_vec(); // do nothing
         }
         let mut vy: Vec<f32> = Vec::with_capacity(xs.len());
@@ -522,7 +570,7 @@ impl Convolver {
             self.buf.pop_front().unwrap();
             self.buf.push_back(*input_x);
             let mut y = 0.0f32;
-            for (x, k) in self.buf.iter().zip(&self.ir) {
+            for (x, k) in self.buf.iter().zip(&self.iir) {
                 y += x * k;
             }
             vy.push(y);
@@ -544,6 +592,9 @@ impl Filter for Convolver {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -554,19 +605,35 @@ pub enum VocalRemoverType {
     RemoveCenterBW(f32, f32, f32),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl Default for VocalRemoverType {
+    fn default() -> Self {
+        VocalRemoverType::RemoveCenter
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct VocalRemover {
     _ft: FilterType,
     vrtype: VocalRemoverType,
+    #[serde(skip)]
     lv: Volume,
+    #[serde(skip)]
     rv: Volume,
+    #[serde(skip)]
     ll: BiquadFilter,
+    #[serde(skip)]
     llx: BiquadFilter,
+    #[serde(skip)]
     lh: BiquadFilter,
+    #[serde(skip)]
     lhx: BiquadFilter,
+    #[serde(skip)]
     rl: BiquadFilter,
+    #[serde(skip)]
     rlx: BiquadFilter,
+    #[serde(skip)]
     rh: BiquadFilter,
+    #[serde(skip)]
     rhx: BiquadFilter,
 }
 
@@ -582,60 +649,30 @@ impl VocalRemover {
     const P: BQFParam = BQFParam::Q(1.414);
 
     pub fn new(vrtype: VocalRemoverType) -> Self {
-        log::debug!("filter::VocalRemover type={:?}", vrtype);
-        match vrtype {
+        let mut f = Self {
+            _ft: FilterType::FTVocalRemover,
+            vrtype,
+            ..Default::default()
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        log::debug!("filter::VocalRemover type={:?}", self.vrtype);
+        match self.vrtype {
             VocalRemoverType::RemoveCenterBW(fs, fl, fh) => {
-                let lv = Volume::new(VolumeCurve::Gain, Self::VOL);
-                let rv = Volume::new(VolumeCurve::Gain, Self::VOL);
-                let ll = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
-                let llx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
-                let lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
-                let lhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
-                let rl = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
-                let rlx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
-                let rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
-                let rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
-                Self {
-                    _ft: FilterType::FTVocalRemover,
-                    vrtype,
-                    lv,
-                    rv,
-                    ll,
-                    llx,
-                    lh,
-                    lhx,
-                    rl,
-                    rlx,
-                    rh,
-                    rhx,
-                }
+                self.lv = Volume::new(VolumeCurve::Gain, Self::VOL);
+                self.rv = Volume::new(VolumeCurve::Gain, Self::VOL);
+                self.ll = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
+                self.llx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                self.lh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
+                self.lhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
+                self.rl = BiquadFilter::new(BQFType::LowPass, fs, fl * Self::RL, 0.0, Self::P);
+                self.rlx = BiquadFilter::new(BQFType::HighPass, fs, fl * Self::RH, 0.0, Self::P);
+                self.rh = BiquadFilter::new(BQFType::HighPass, fs, fh * Self::RH, 0.0, Self::P);
+                self.rhx = BiquadFilter::new(BQFType::LowPass, fs, fh * Self::RL, 0.0, Self::P);
             }
-            _ => {
-                let lv = Volume::new(VolumeCurve::Gain, 0.0);
-                let rv = Volume::new(VolumeCurve::Gain, 0.0);
-                let ll = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let llx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let lh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let lhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rl = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rlx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rh = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                let rhx = BiquadFilter::new(BQFType::LowPass, 0.0, 0.0, 0.0, BQFParam::Q(0.0));
-                Self {
-                    _ft: FilterType::FTVocalRemover,
-                    vrtype,
-                    lv,
-                    rv,
-                    ll,
-                    llx,
-                    lh,
-                    lhx,
-                    rl,
-                    rlx,
-                    rh,
-                    rhx,
-                }
-            }
+            _ => {}
         }
     }
     pub fn newb(vrtype: VocalRemoverType) -> Box<dyn Filter2ch> {
@@ -692,6 +729,9 @@ impl Filter2ch for VocalRemover {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -701,10 +741,14 @@ pub struct NopFilter {
 
 impl NopFilter {
     pub fn new() -> Self {
-        log::debug!("filter::NopFilter");
-        Self {
+        let mut f = Self {
             _ft: FilterType::FTNop,
-        }
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        log::debug!("filter::NopFilter");
     }
     pub fn newb() -> Box<dyn Filter> {
         Box::new(Self::new())
@@ -727,6 +771,9 @@ impl Filter for NopFilter {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
 #[derive(Debug)]
@@ -738,12 +785,18 @@ pub struct PairedFilter {
 
 impl PairedFilter {
     pub fn new(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Self {
-        log::debug!("filter::PairedFilter l={:?} r={:?}", l, r);
-        Self {
+        let mut f = Self {
             _ft: FilterType::FTPaired,
             l,
             r,
-        }
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        log::debug!("filter::PairedFilter l={:?} r={:?}", self.l, self.r);
+        self.l.init();
+        self.r.init();
     }
     pub fn newb(l: Box<dyn Filter>, r: Box<dyn Filter>) -> Box<dyn Filter2ch> {
         Box::new(Self::new(l, r))
@@ -767,11 +820,14 @@ impl Filter2ch for PairedFilter {
     fn to_json(&self) -> String {
         self.to_json()
     }
+    fn init(&mut self) {
+        self.init();
+    }
 }
 
-type VecFilters = Vec<Box<dyn Filter>>;
+pub type VecFilters = Vec<Box<dyn Filter>>;
 
-type VecFilters2ch = Vec<Box<dyn Filter2ch>>;
+pub type VecFilters2ch = Vec<Box<dyn Filter2ch>>;
 
 pub fn vec_to_json(vf: &VecFilters) -> String {
     if vf.len() == 0 {
@@ -816,11 +872,31 @@ pub fn json_to_filter(s: &str) -> Box<dyn Filter> {
         }
     };
     match x._ft {
-        FilterType::FTNop => Box::<NopFilter>::new(serde_json::from_str(s).unwrap()),
-        FilterType::FTVolume => Box::<Volume>::new(serde_json::from_str(s).unwrap()),
-        FilterType::FTDelay => Box::<Delay>::new(serde_json::from_str(s).unwrap()),
-        FilterType::FTBiquad => Box::<BiquadFilter>::new(serde_json::from_str(s).unwrap()),
-        FilterType::FTConvolver => Box::<Convolver>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTNop => {
+            let mut f = Box::<NopFilter>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
+        FilterType::FTVolume => {
+            let mut f = Box::<Volume>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
+        FilterType::FTDelay => {
+            let mut f = Box::<Delay>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
+        FilterType::FTBiquad => {
+            let mut f = Box::<BiquadFilter>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
+        FilterType::FTConvolver => {
+            let mut f = Box::<Convolver>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
         _ => {
             log::error!(
                 "json_to_filter found unsupported FilterType={:?} and returned NopFilter",
@@ -843,13 +919,20 @@ pub fn json_to_filter2ch(s: &str) -> Box<dyn Filter2ch> {
         }
     };
     match x._ft {
-        FilterType::FTVocalRemover => Box::<VocalRemover>::new(serde_json::from_str(s).unwrap()),
+        FilterType::FTVocalRemover => {
+            let mut f = Box::<VocalRemover>::new(serde_json::from_str(s).unwrap());
+            f.init();
+            f
+        }
         FilterType::FTPaired => {
             let tmp: _PairedFilterDeserializationStruct = serde_json::from_str(s).unwrap();
-            PairedFilter::newb(
+            let mut f = Box::<PairedFilter>::new(PairedFilter::new(
                 json_to_filter(&format!("{}", tmp.l)),
                 json_to_filter(&format!("{}", tmp.r)),
-            )
+            ));
+            f.l.init();
+            f.r.init();
+            f
         }
         _ => {
             log::error!(
@@ -1025,7 +1108,7 @@ mod tests {
             0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28,
             0.29, 0.30,
         ];
-        let got = Delay::with_tapnum(6).apply(&t);
+        let got = Delay::new(6, 1000.0).apply(&t);
         assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
@@ -1034,14 +1117,14 @@ mod tests {
     fn test_delay_zero() {
         let want = [0.01, 0.02, 0.03, 0.04];
         let t = [0.01, 0.02, 0.03, 0.04];
-        let got = Delay::with_tapnum(0).apply(&t);
+        let got = Delay::new(0, 1000.0).apply(&t);
         assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
     #[test]
     #[should_panic]
     fn test_delay_too_long() {
-        Delay::with_tapnum(Delay::MAX_TAPNUM + 1).apply(&[0.01, 0.02, 0.03, 0.04]);
+        Delay::new(Delay::MAX_TAPNUM + 1, 1000.0).apply(&[0.01, 0.02, 0.03, 0.04]);
     }
 
     #[test]
@@ -1051,7 +1134,7 @@ mod tests {
         // `cargo test -- --ignored` to run
         let tapsize = 1 << 30 >> 2;
         let x = vec![0.123; tapsize];
-        let _y = Delay::with_tapnum(tapsize).apply(&x);
+        let _y = Delay::new(Delay::MAX_TAPNUM + 1, 1000.0).apply(&x);
 
         use std::{thread, time};
         let t = time::Duration::from_millis(5000);
@@ -1159,8 +1242,8 @@ mod tests {
 
     #[test]
     fn test_delay_to_json() {
-        let t = Delay::new(200, 48000);
-        let want = r#"{"_ft":"FTDelay","tapnum":9600}"#;
+        let t = Delay::new(200, 48000.0);
+        let want = r#"{"_ft":"FTDelay","sample_rate":48000.0,"time_ms":200}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1171,7 +1254,7 @@ mod tests {
     #[test]
     fn test_volume_to_json() {
         let t = Volume::new(VolumeCurve::Gain, -6.0);
-        let want = r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}"#;
+        let want = r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1188,7 +1271,7 @@ mod tests {
             -3.5,
             BQFParam::Q(0.707),
         );
-        let want = r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","rate":48000.0,"f0":1234.0,"gain":-3.5,"param":{"Q":0.707},"coeff":{"b0":1.0929853,"b1":-1.9739647,"b2":0.9070147,"a0":1.1391279,"a1":-1.9739647,"a2":0.86087215,"b0_div_a0":0.95949304,"b1_div_a0":-1.7328737,"b2_div_a0":0.7962361,"a1_div_a0":-1.7328737,"a2_div_a0":0.7557292}}"#;
+        let want = r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","rate":48000.0,"f0":1234.0,"gain":-3.5,"param":{"Q":0.707}}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1199,7 +1282,7 @@ mod tests {
     #[test]
     fn test_convolver_to_json() {
         let t = Convolver::new(&[0.01, 0.02, 0.03, 0.04]);
-        let want = r#"{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]}"#;
+        let want = r#"{"_ft":"FTConvolver","ir":[0.01,0.02,0.03,0.04]}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1221,7 +1304,7 @@ mod tests {
     #[test]
     fn test_vocalremover_to_json() {
         let t = VocalRemover::new(VocalRemoverType::RemoveCenterBW(48000.0, 200.0, 4000.0));
-        let want = r#"{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[48000.0,200.0,4000.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":176.40001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00013327599,"b1":0.00026655197,"b2":0.00013327599,"a0":1.0081643,"a1":-1.9994669,"a2":0.9918357,"b0_div_a0":0.0001321967,"b1_div_a0":0.0002643934,"b2_div_a0":0.0001321967,"a1_div_a0":-1.9832748,"a2_div_a0":0.98380363}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":226.75735,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99977976,"b1":-1.9995595,"b2":0.99977976,"a0":1.0104944,"a1":-1.999119,"a2":0.98950565,"b0_div_a0":0.9893967,"b1_div_a0":-1.9787934,"b2_div_a0":0.9893967,"a1_div_a0":-1.9783574,"a2_div_a0":0.9792293}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":4535.147,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.9144524,"b1":-1.8289047,"b2":0.9144524,"a0":1.197804,"a1":-1.6578095,"a2":0.802196,"b0_div_a0":0.7634408,"b1_div_a0":-1.5268816,"b2_div_a0":0.7634408,"a1_div_a0":-1.3840407,"a2_div_a0":0.6697223}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":3528.0,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.052377164,"b1":0.10475433,"b2":0.052377164,"a0":1.1575576,"a1":-1.7904913,"a2":0.8424424,"b0_div_a0":0.045247998,"b1_div_a0":0.090495996,"b2_div_a0":0.045247998,"a1_div_a0":-1.5467838,"a2_div_a0":0.7277758}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":176.40001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00013327599,"b1":0.00026655197,"b2":0.00013327599,"a0":1.0081643,"a1":-1.9994669,"a2":0.9918357,"b0_div_a0":0.0001321967,"b1_div_a0":0.0002643934,"b2_div_a0":0.0001321967,"a1_div_a0":-1.9832748,"a2_div_a0":0.98380363}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":226.75735,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99977976,"b1":-1.9995595,"b2":0.99977976,"a0":1.0104944,"a1":-1.999119,"a2":0.98950565,"b0_div_a0":0.9893967,"b1_div_a0":-1.9787934,"b2_div_a0":0.9893967,"a1_div_a0":-1.9783574,"a2_div_a0":0.9792293}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":48000.0,"f0":4535.147,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.9144524,"b1":-1.8289047,"b2":0.9144524,"a0":1.197804,"a1":-1.6578095,"a2":0.802196,"b0_div_a0":0.7634408,"b1_div_a0":-1.5268816,"b2_div_a0":0.7634408,"a1_div_a0":-1.3840407,"a2_div_a0":0.6697223}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":48000.0,"f0":3528.0,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.052377164,"b1":0.10475433,"b2":0.052377164,"a0":1.1575576,"a1":-1.7904913,"a2":0.8424424,"b0_div_a0":0.045247998,"b1_div_a0":0.090495996,"b2_div_a0":0.045247998,"a1_div_a0":-1.5467838,"a2_div_a0":0.7277758}}}"#;
+        let want = r#"{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[48000.0,200.0,4000.0]}}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1235,7 +1318,7 @@ mod tests {
             Convolver::newb(&[0.01, 0.02, 0.03, 0.04]),
             NopFilter::newb(),
         );
-        let want = r#"{"_ft":"FTPaired","l":{"_ft":"FTConvolver","ir":[0.04,0.03,0.02,0.01]},"r":{"_ft":"FTNop"}}"#;
+        let want = r#"{"_ft":"FTPaired","l":{"_ft":"FTConvolver","ir":[0.01,0.02,0.03,0.04]},"r":{"_ft":"FTNop"}}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1245,14 +1328,14 @@ mod tests {
 
     #[test]
     fn test_vec_to_json() {
-        let t = r#"[{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872},{"_ft":"FTDelay","tapnum":8820}]"#;
+        let t = r#"[{"_ft":"FTVolume","curve":"Gain","val":-6.0},{"_ft":"FTDelay","sample_rate":48000.0,"time_ms":200}]"#;
         let got = vec_to_json(&json_to_vec(t));
         assert_eq!(t, got);
     }
 
     #[test]
     fn test_vec2ch_to_json() {
-        let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0,"ratio":0.5011872}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[44100.0,240.0,6600.0]},"lv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"rv":{"_ft":"FTVolume","curve":"Gain","val":-3.0,"ratio":0.70794576},"ll":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":211.68001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00022739172,"b1":0.00045478344,"b2":0.00022739172,"a0":1.0106629,"a1":-1.9990904,"a2":0.9893371,"b0_div_a0":0.00022499265,"b1_div_a0":0.0004499853,"b2_div_a0":0.00022499265,"a1_div_a0":-1.9779992,"a2_div_a0":0.9788992}},"llx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":272.10883,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99962425,"b1":-1.9992485,"b2":0.99962425,"a0":1.0137055,"a1":-1.9984971,"a2":0.98629445,"b0_div_a0":0.98610914,"b1_div_a0":-1.9722183,"b2_div_a0":0.98610914,"a1_div_a0":-1.971477,"a2_div_a0":0.9729596}},"lh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":7482.9927,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.7417508,"b1":-1.4835016,"b2":0.7417508,"a0":1.3095274,"a1":-0.96700317,"a2":0.6904726,"b0_div_a0":0.56642634,"b1_div_a0":-1.1328527,"b2_div_a0":0.56642634,"a1_div_a0":-0.73843676,"a2_div_a0":0.5272685}},"lhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":5821.2,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.16233361,"b1":0.32466722,"b2":0.16233361,"a0":1.2607896,"a1":-1.3506656,"a2":0.73921037,"b0_div_a0":0.12875551,"b1_div_a0":0.25751102,"b2_div_a0":0.12875551,"a1_div_a0":-1.0712855,"a2_div_a0":0.58630747}},"rl":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":211.68001,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.00022739172,"b1":0.00045478344,"b2":0.00022739172,"a0":1.0106629,"a1":-1.9990904,"a2":0.9893371,"b0_div_a0":0.00022499265,"b1_div_a0":0.0004499853,"b2_div_a0":0.00022499265,"a1_div_a0":-1.9779992,"a2_div_a0":0.9788992}},"rlx":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":272.10883,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.99962425,"b1":-1.9992485,"b2":0.99962425,"a0":1.0137055,"a1":-1.9984971,"a2":0.98629445,"b0_div_a0":0.98610914,"b1_div_a0":-1.9722183,"b2_div_a0":0.98610914,"a1_div_a0":-1.971477,"a2_div_a0":0.9729596}},"rh":{"_ft":"FTBiquad","filter_type":"HighPass","rate":44100.0,"f0":7482.9927,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.7417508,"b1":-1.4835016,"b2":0.7417508,"a0":1.3095274,"a1":-0.96700317,"a2":0.6904726,"b0_div_a0":0.56642634,"b1_div_a0":-1.1328527,"b2_div_a0":0.56642634,"a1_div_a0":-0.73843676,"a2_div_a0":0.5272685}},"rhx":{"_ft":"FTBiquad","filter_type":"LowPass","rate":44100.0,"f0":5821.2,"gain":0.0,"param":{"Q":1.414},"coeff":{"b0":0.16233361,"b1":0.32466722,"b2":0.16233361,"a0":1.2607896,"a1":-1.3506656,"a2":0.73921037,"b0_div_a0":0.12875551,"b1_div_a0":0.25751102,"b2_div_a0":0.12875551,"a1_div_a0":-1.0712855,"a2_div_a0":0.58630747}}}]"#;
+        let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[44100.0,240.0,6600.0]}}]"#;
         let got = vec2ch_to_json(&json_to_vec2ch(t));
         assert_eq!(t, got);
     }
