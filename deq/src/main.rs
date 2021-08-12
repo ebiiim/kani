@@ -121,14 +121,16 @@ pub fn play(
     mut w: Box<dyn io::Output + Send>,
     mut dsp: Box<dyn io::Processor + Send>,
 ) {
-    let (tx1, rx1) = sync_channel(0);
-    let (tx2, rx2) = sync_channel(0);
-    let (in_status_tx, status_rx) = sync_channel(0);
+    // let channels below no rendezvous
+    let (tx1, rx1) = sync_channel(1);
+    let (tx2, rx2) = sync_channel(1);
+    let (in_status_tx, status_rx) = sync_channel(1);
     let dsp_status_tx = in_status_tx.clone();
     let out_status_tx = in_status_tx.clone();
-    let (in_cmd_tx, in_cmd_rx) = sync_channel(0);
-    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(0);
-    let (out_cmd_tx, out_cmd_rx) = sync_channel(0);
+    // channels below need 1 or more buffer or stuck
+    let (_in_cmd_tx, in_cmd_rx) = sync_channel(1);
+    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(1);
+    let (_out_cmd_tx, out_cmd_rx) = sync_channel(1);
 
     let frame = r.info().frame;
     let rate = r.info().rate;
@@ -143,6 +145,7 @@ pub fn play(
         w.run(rx2, out_status_tx, out_cmd_rx).unwrap();
     });
 
+    let mut current_vf2 = read_vf2();
     // prepare avg latency
     let mut latency_avg = 0.0f64;
     let avg_sec = 10;
@@ -155,6 +158,7 @@ pub fn play(
                 latency_avg -= latency_avg / n as f64;
                 latency_avg += l as f64 / n as f64;
                 count += 1;
+                // once every avg_sec
                 if count % n == 0 {
                     log::info!(
                         "filter latency ({}s avg): {:.3} ms | total frames: {}",
@@ -162,6 +166,17 @@ pub fn play(
                         latency_avg / 1000.0,
                         count
                     );
+                }
+                // once every one avg_sec
+                if count % (n / avg_sec) == 0 {
+                    let tmp = read_vf2();
+                    if &tmp != &current_vf2 {
+                        log::info!("reload filters");
+                        current_vf2 = tmp;
+                        dsp_cmd_tx
+                            .send(io::Cmd::Reload(current_vf2.clone()))
+                            .unwrap();
+                    }
                 }
             }
             Interpolated(_) => {
@@ -178,6 +193,10 @@ pub fn play(
             }
         }
     }
+}
+
+fn read_vf2() -> String {
+    std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""))
 }
 
 pub fn start() {
@@ -259,11 +278,7 @@ pub fn start() {
                         44100,
                         2,
                     );
-                    let dsp = io::DSP::new(
-                        r.info().frame,
-                        r.info().rate,
-                        &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
-                    );
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -282,11 +297,7 @@ pub fn start() {
                     if let Ok(n) = read_str("file name> ") {
                         let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp = io::DSP::new(
-                            r.info().frame,
-                            r.info().rate,
-                            &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
-                        );
+                        let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -305,11 +316,7 @@ pub fn start() {
                     }
                     let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp = io::DSP::new(
-                        r.info().frame,
-                        r.info().rate,
-                        &std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from("")),
-                    );
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,

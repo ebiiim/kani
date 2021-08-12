@@ -38,6 +38,7 @@ A toy audio processor I made in my holidays just for fun :D
     - [x] CLI (minimal one)
     - [x] Config (Import / Export)
     - [ ] GUI
+    - [x] Update DSP config during playback
 - Supported Platforms (should work on same platforms as PortAudio)
     - [x] Windows
     - [x] Linux

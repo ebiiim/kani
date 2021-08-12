@@ -570,8 +570,8 @@ pub struct DSP {
 }
 
 impl DSP {
-    pub fn new(frame: Frame, rate: Rate, path_vf2: &str) -> Self {
-        let vf2 = load_vec2ch(path_vf2, rate as f32);
+    pub fn new(frame: Frame, rate: Rate, vf2_json: &str) -> Self {
+        let vf2 = parse_vec2ch(vf2_json, rate as f32);
         let p = DSP {
             info: Info {
                 frame,
@@ -612,7 +612,7 @@ impl Processor for DSP {
                 match cmd.unwrap() {
                     Cmd::Reload(s) => {
                         log::debug!("DSP reload config={}", s);
-                        self.vf2 = load_vec2ch(&s, self.info.rate as f32);
+                        self.vf2 = parse_vec2ch(&s, self.info.rate as f32);
                     }
                 }
             }
@@ -643,7 +643,7 @@ impl Processor for DSP {
     }
 }
 
-fn load_vec2ch(json: &str, fs: f32) -> VecFilters2ch {
+fn parse_vec2ch(json: &str, fs: f32) -> VecFilters2ch {
     match json_to_vec2ch(json, fs) {
         Ok(vf2) => vf2,
         Err(_) => {
