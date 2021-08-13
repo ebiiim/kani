@@ -1176,7 +1176,7 @@ mod tests {
         // `cargo test -- --ignored` to run
         let tapsize = 1 << 30 >> 2;
         let x = vec![0.123; tapsize];
-        let _y = Delay::new(Delay::MAX_TAPNUM + 1, 1000.0).apply(&x);
+        let _y = Delay::new(Delay::MAX_TAPNUM, 1000.0).apply(&x);
 
         use std::{thread, time};
         let t = time::Duration::from_millis(5000);
