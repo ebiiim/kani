@@ -14,7 +14,7 @@ extern crate deq_io;
 const PATH_FILTERS: &str = "filters.json";
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-const PATH_LIBRESPOT: &str = "librespot";
+const PATH_LIBRESPOT: &str = "./librespot";
 #[cfg(target_os = "windows")]
 const PATH_LIBRESPOT: &str = "librespot.exe";
 

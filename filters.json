@@ -1,0 +1,24 @@
+[
+    {
+        "_ft": "FTVocalRemover",
+        "vrtype": {
+            "RemoveCenterBW": [
+                280.0,
+                4200.0
+            ]
+        }
+    },
+    {
+        "_ft": "FTPaired",
+        "l": {
+            "_ft": "FTVolume",
+            "curve": "Gain",
+            "val": -6.0
+        },
+        "r": {
+            "_ft": "FTVolume",
+            "curve": "Gain",
+            "val": -6.0
+        }
+    }
+]

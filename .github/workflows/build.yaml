@@ -1,0 +1,162 @@
+on: push
+
+name: build
+
+env:
+  DIST: dist
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux_amd64
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            name: linux_armv7
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: darwin_amd64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: windows_amd64
+        rust:
+          - stable
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      # Setup portaudio
+
+      - name: install portaudio (linux)
+        if: matrix.name == 'linux_amd64'
+        run: sudo apt-get install portaudio19-dev
+
+      - name: install portaudio (macos)
+        if: matrix.name == 'darwin_amd64'
+        run: brew install portaudio
+
+      - name: install portaudio (windows) - cache
+        uses: actions/cache@v2
+        if: matrix.name == 'windows_amd64'
+        with:
+          path: |
+            C:\vcpkg\installed
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: install portaudio (windows)
+        if: matrix.name == 'windows_amd64'
+        run: |
+          vcpkg install portaudio:x64-windows
+          cp C:\vcpkg\installed\x64-windows\lib\portaudio.lib $Env:GITHUB_WORKSPACE
+          cp C:\vcpkg\installed\x64-windows\share\portaudio\copyright $Env:GITHUB_WORKSPACE\LICENSE_PortAudio
+
+      - name: install portaudio (cross)
+        if: matrix.name == 'linux_armv7'
+        run: docker build -t deq/cross_armv7 ./
+
+      # Test & Build
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: test
+        if: matrix.name != 'linux_armv7'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --release
+
+      - name: test (cross)
+        if: matrix.name == 'linux_armv7'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --release --target ${{ matrix.target }}
+          use-cross: true
+
+      - name: build
+        if: matrix.name != 'linux_armv7'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      - name: build (cross)
+        if: matrix.name == 'linux_armv7'
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+          use-cross: true
+
+      # Bundle
+
+      - name: build librespot - cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ../librespot
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: build librespot
+        if: matrix.name != 'linux_armv7'
+        run: |
+          cd .. && git clone https://github.com/librespot-org/librespot && cd librespot
+          cargo build --release --no-default-features
+
+      - name: build librespot (cross)
+        if: matrix.name == 'linux_armv7'
+        run: |
+          cd .. && git clone https://github.com/librespot-org/librespot && cd librespot
+          cargo install cross || true
+          cp ../deq/Cross.toml .
+          cross build --release --target ${{ matrix.target }} --no-default-features
+
+      - name: bundle
+        run: |
+          DIST=${{ env.DIST }}
+          mkdir -p ${DIST}
+
+          cp target/release/deq{,.exe} ${DIST} || true
+          cp target/${{ matrix.target }}/release/deq ${DIST} || true
+
+          cp filters.json ${DIST}
+          cp README.md ${DIST}
+          cp LICENSE ${DIST}
+
+          cp portaudio.lib ${DIST} || true
+          cp LICENSE_PortAudio ${DIST} || true
+
+          cp ../librespot/target/release/librespot{,.exe} ${DIST} || true
+          cp ../librespot/target/${{ matrix.target }}/release/librespot ${DIST} || true
+          cp ../librespot/LICENSE ${DIST}/LICENSE_librespot
+        shell: bash
+
+      - name: upload-artifact - add short SHA to env
+        run: echo "GITHUB_SHA__SHORT=`echo ${GITHUB_SHA} | cut -c1-7`" >> $GITHUB_ENV
+        shell: bash
+
+      - name: upload-artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: build-${{ matrix.name }}-${{ env.GITHUB_SHA__SHORT }}
+          path: |
+            ${{ env.DIST }}
