@@ -750,7 +750,7 @@ impl VocalRemover {
                     let rsum = rl[i] + center[i] + rh[i];
                     #[cfg(debug_assertions)]
                     if lsum.abs() > 1.0 || rsum.abs() > 1.0 {
-                        log::warn!("clipping detected l={} r={}", lsum, rsum);
+                        log::debug!("clipping detected l={} r={}", lsum, rsum);
                     }
                     lo.push(lsum);
                     ro.push(rsum);

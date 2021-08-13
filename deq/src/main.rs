@@ -35,7 +35,7 @@ const TERM_LEFT_TOP: &str = "\x1B[1;1H";
 fn main() {
     // init logger
     let log_levels = ["error", "warn", "info", "debug", "trace"];
-    let log_default = log_levels[2]; // default log level: info
+    let log_default = log_levels[1]; // default log level: warn
     let log_env = "RUST_LOG";
     match env::var(log_env) {
         Err(_) => env::set_var(log_env, log_default),
@@ -146,11 +146,64 @@ pub fn play(
     });
 
     let mut current_vf2 = read_vf2();
+
+    // CLI
+    // do increment in Latency as Latency is received once per frame
+    let mut count: u64 = 0;
     // prepare avg latency
     let mut latency_avg = 0.0f64;
     let avg_sec = 10;
     let n = rate as u64 / frame as u64 * avg_sec;
-    let mut count: u64 = 0;
+    // prepare RMS and peak
+    let mut l_rms_in = 0.0;
+    let mut l_rms_out = 0.0;
+    let mut l_peak_in = 0.0;
+    let mut l_peak_out = 0.0;
+    let mut r_rms_in = 0.0;
+    let mut r_rms_out = 0.0;
+    let mut r_peak_in = 0.0;
+    let mut r_peak_out = 0.0;
+    let calc_gain = |v: f32| 20.0 * v.log10();
+    let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
+        let mut s = String::from("");
+        for i in 0..(max / step) {
+            if i == (peak / step) {
+                s += "|";
+            } else if i < (cur / step) {
+                s += "|";
+            } else {
+                s += ".";
+            }
+        }
+        s
+    };
+    let draw_volume = |ch: &str, rms: f32, peak: f32, max: isize, step: isize| {
+        let mut over1 = " ";
+        let mut over2 = "";
+        let rms_db = calc_gain(rms);
+        let peak_db = calc_gain(peak);
+        if peak_db > 1.0 {
+            over1 = "*";
+            over2 = " OVR";
+        }
+        // L |||||||||||||||||||||.........* +0.3 OVR
+        // R |||||||||||||||||||.....|.....  -1.6
+        format!(
+            "{} {}{} {:+.1}{}\n",
+            ch,
+            draw_bar(max + rms_db as isize, max + peak_db as isize, max, step),
+            over1,
+            peak_db,
+            over2
+        )
+    };
+    let draw_time = |mut sec: usize| {
+        let h = sec / 3600;
+        sec %= 3600;
+        let m = sec / 60;
+        sec %= 60;
+        format!("{:02}:{:02}:{:02}", h, m, sec)
+    };
     for s in status_rx {
         match s {
             // check io::Status::*
@@ -161,7 +214,7 @@ pub fn play(
                 // once every avg_sec
                 if count % n == 0 {
                     log::info!(
-                        "filter latency ({}s avg): {:.3} ms | total frames: {}",
+                        "DSP latency ({}s avg): {:.3} ms | total frames: {}",
                         avg_sec,
                         latency_avg / 1000.0,
                         count
@@ -178,6 +231,74 @@ pub fn play(
                             .unwrap();
                     }
                 }
+                // draw CLI (every 100 ms)
+                if count % ((rate / frame) as f32 * 0.1) as u64 == 0 {
+                    let status = format!(
+                        "Time\t{}\nLatency\t{:.2} ms\n",
+                        draw_time(count as usize / (rate / frame)),
+                        latency_avg / 1000.0,
+                    );
+                    let l_in_bar = draw_volume("L", l_rms_in, l_peak_in, 60, 2);
+                    let r_in_bar = draw_volume("R", r_rms_in, r_peak_in, 60, 2);
+                    let l_out_bar = draw_volume("L", l_rms_out, l_peak_out, 60, 2);
+                    let r_out_bar = draw_volume("R", r_rms_out, r_peak_out, 60, 2);
+                    let note = "use Ctrl+C to stop\n";
+                    print!(
+                        "{}{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
+                        TERM_CLEAR,
+                        TERM_LEFT_TOP,
+                        status,
+                        l_in_bar,
+                        r_in_bar,
+                        l_out_bar,
+                        r_out_bar,
+                        note
+                    )
+                }
+            }
+            RMS(pos, ch, v) => {
+                if pos == io::IO::Input {
+                    if ch == 0 {
+                        l_rms_in = v;
+                    } else {
+                        r_rms_in = v;
+                    }
+                } else {
+                    if ch == 0 {
+                        l_rms_out = v;
+                    } else {
+                        r_rms_out = v;
+                    }
+                }
+                log::trace!(
+                    "RMS\tL {:.3}=>{:.3} | R {:.3}=>{:.3}",
+                    calc_gain(l_rms_in),
+                    calc_gain(l_rms_out),
+                    calc_gain(r_rms_in),
+                    calc_gain(r_rms_out)
+                );
+            }
+            Peak(pos, ch, v) => {
+                if pos == io::IO::Input {
+                    if ch == 0 {
+                        l_peak_in = v;
+                    } else {
+                        r_peak_in = v;
+                    }
+                } else {
+                    if ch == 0 {
+                        l_peak_out = v;
+                    } else {
+                        r_peak_out = v;
+                    }
+                }
+                log::trace!(
+                    "Peak\tL {:.3}=>{:.3} | R {:.3}=>{:.3}",
+                    calc_gain(l_peak_in),
+                    calc_gain(l_peak_out),
+                    calc_gain(r_peak_in),
+                    calc_gain(r_peak_out)
+                );
             }
             Interpolated(_) => {
                 log::info!("{:?}", s);
@@ -209,8 +330,7 @@ pub fn start() {
 
     let mut input_dev = CLI_DEV_INVALID;
     let mut output_dev = CLI_DEV_INVALID;
-    print!("{}", TERM_CLEAR);
-    print!("{}", TERM_LEFT_TOP);
+    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
     loop {
         let cmd = read_int(
             "[1]list all devices [2]show device info

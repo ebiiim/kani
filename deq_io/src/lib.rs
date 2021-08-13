@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use deq_filter::*;
 use portaudio as pa;
+use std::collections::VecDeque;
 use std::io::prelude::*;
 use std::process::{Command, Stdio};
 use std::slice;
@@ -14,7 +15,7 @@ type Rate = usize;
 type Bit = usize;
 type Ch = usize;
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IO {
     Input,
     Output,
@@ -33,12 +34,21 @@ pub enum Status {
     RxErr(IO),
     /// Latency in microseconds.
     ///
-    /// Input and Output do not send latency for now,
-    /// Processor sends filter latency (without IO latency).
+    /// Currently only Processor sends this value.
+    /// Processor sends signal process latency (without IO latency).
     Latency(u32),
     /// Output inserted a frame to mitigate underrun.
     Interpolated(IO),
-    // TODO: RMS, Peak, Clipping?
+    /// RMS in FP32, you might want to calc gain.
+    ///
+    /// Processor sends this value and `IO` here means where the value is measured.
+    /// Window size depends on Processor implementation.
+    RMS(IO, Ch, f32),
+    /// Peak in FP32, you might want to calc gain.
+    ///
+    /// Processor sends this value and `IO` here means where the value is measured.
+    /// Detection method depends on Processor implementation.
+    Peak(IO, Ch, f32),
 }
 
 #[derive(Debug)]
@@ -601,6 +611,37 @@ impl Processor for DSP {
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
+        // RMS window = 100 ms
+        // peak hold timer = 2000 ms
+        let mut l_in_level = LevelMeter1ch::new(
+            status_tx.clone(),
+            IO::Input,
+            0,
+            (self.info.rate as f32 * 0.1) as usize,
+            self.info.rate * 2,
+        );
+        let mut r_in_level = LevelMeter1ch::new(
+            status_tx.clone(),
+            IO::Input,
+            1,
+            (self.info.rate as f32 * 0.1) as usize,
+            self.info.rate * 2,
+        );
+        let mut l_out_level = LevelMeter1ch::new(
+            status_tx.clone(),
+            IO::Output,
+            0,
+            (self.info.rate as f32 * 0.1) as usize,
+            self.info.rate * 2,
+        );
+        let mut r_out_level = LevelMeter1ch::new(
+            status_tx.clone(),
+            IO::Output,
+            1,
+            (self.info.rate as f32 * 0.1) as usize,
+            self.info.rate * 2,
+        );
+
         status_tx.send(Status::RxInit(IO::Processor)).unwrap();
         status_tx.send(Status::TxInit(IO::Processor)).unwrap();
 
@@ -621,8 +662,12 @@ impl Processor for DSP {
             let start = time::Instant::now();
             // --- measure latency ---
             let (l, r) = from_interleaved(&buf);
+            l_in_level.push_data(&l);
+            r_in_level.push_data(&r);
             let (l, r) = apply_filters(&l, &r, &mut self.lvf, &mut self.rvf);
             let (l, r) = apply_filters2(&l, &r, &mut self.vf2);
+            l_out_level.push_data(&l);
+            r_out_level.push_data(&r);
             let buf = to_interleaved(&l, &r);
             // -----------------------
             let end = start.elapsed();
@@ -640,6 +685,71 @@ impl Processor for DSP {
         status_tx.send(Status::RxFin(IO::Processor)).unwrap();
         status_tx.send(Status::TxFin(IO::Processor)).unwrap();
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct LevelMeter1ch {
+    status_tx: SyncSender<Status>,
+    io: IO,
+    ch: Ch,
+    /// current mean square (calc root before every send)
+    rms_cur: f32,
+    rms_cnt: u64,
+    rms_window: Frame,
+    rms_buf: VecDeque<f32>,
+    peak_cur: f32,
+    peak_cnt: u64,
+    peak_hold: Frame,
+}
+
+impl LevelMeter1ch {
+    pub fn new(
+        status_tx: SyncSender<Status>,
+        io: IO,
+        ch: Ch,
+        rms_window: Frame,
+        peak_hold: Frame,
+    ) -> Self {
+        Self {
+            status_tx,
+            io,
+            ch,
+            rms_cur: 0.0,
+            rms_cnt: 0,
+            rms_window,
+            rms_buf: VecDeque::from(vec![0.0; rms_window]),
+            peak_cur: 0.0,
+            peak_cnt: 0,
+            peak_hold: peak_hold,
+        }
+    }
+    pub fn push_data(&mut self, s: &[f32]) {
+        for i in 0..s.len() {
+            let oldest_sample = self.rms_buf.pop_front().unwrap();
+            let latest_sample = s[i];
+            self.rms_buf.push_back(latest_sample);
+
+            // calc RMS
+            if self.rms_cnt % self.rms_window as u64 == 0 {
+                self.rms_cur = self.rms_cur - oldest_sample.powi(2) + latest_sample.powi(2);
+                self.status_tx
+                    .send(Status::RMS(self.io, self.ch, self.rms_cur.sqrt()))
+                    .unwrap();
+            }
+            self.rms_cnt += 1;
+
+            // check peak
+            let latest_abs = latest_sample.abs();
+            if self.peak_cur < latest_abs || self.peak_cnt % self.peak_hold as u64 == 0 {
+                self.peak_cur = latest_abs;
+                self.status_tx
+                    .send(Status::Peak(self.io, self.ch, self.peak_cur))
+                    .unwrap();
+                self.peak_cnt = 0; // reset peak hold timer
+            }
+            self.peak_cnt += 1
+        }
     }
 }
 
