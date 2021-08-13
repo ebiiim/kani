@@ -170,7 +170,7 @@ pub fn play(
     let calc_gain = |v: f32| 20.0 * v.log10();
     let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
         let mut s = String::from("");
-        for i in 0..(max / step) {
+        for i in 0..((max+2) / step) {
             if i == (peak / step) {
                 s += "|";
             } else if i < (cur / step) {
