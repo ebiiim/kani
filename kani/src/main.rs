@@ -57,7 +57,6 @@ fn main() {
     // args
     let args: Vec<String> = env::args().collect();
     let bin = args[0].clone();
-
     let mut opts = Options::new();
     opts.optopt(
         "f",
@@ -66,6 +65,7 @@ fn main() {
         "FRAME",
     );
     opts.optflag("h", "help", "print usage");
+    opts.optflag("n", "no-level-meter", "no show level meter");
     let m = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(e) => {
@@ -81,12 +81,12 @@ fn main() {
         .unwrap_or(String::from(""))
         .parse::<usize>()
         .unwrap_or(DEFAULT_FRAME);
-
-    start(frame);
+    let no_level_meter = m.opt_present("n");
+    start(frame, no_level_meter);
 }
 
 fn print_usage(bin: &str, opts: Options) {
-    let usage = format!("Usage: {} [-f FRAME]", bin);
+    let usage = format!("Usage: {} [-f FRAME] [-n]", bin);
     print!("{}", opts.usage(&usage));
 }
 
@@ -159,6 +159,7 @@ pub fn play(
     mut r: Box<dyn io::Input + Send>,
     mut w: Box<dyn io::Output + Send>,
     mut dsp: Box<dyn io::Processor + Send>,
+    no_level_meter: bool,
 ) {
     // use sync channel to pace the reader so do not use async channel
     // use small buffer and let channels no rendezvous
@@ -293,6 +294,9 @@ pub fn play(
                     }
                 }
                 // draw CLI (every 100 ms)
+                if no_level_meter {
+                    continue;
+                }
                 if count % ((rate / frame) as f32 * 0.1) as u64 == 0 {
                     let status = format!(
                         "Time\t{}\nLatency\t{:.2} ms\n",
@@ -384,7 +388,7 @@ fn read_vf2() -> String {
     std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""))
 }
 
-pub fn start(frame: usize) {
+pub fn start(frame: usize, no_level_meter: bool) {
     let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -457,7 +461,7 @@ pub fn start(frame: usize) {
                     }
                     let r = io::PipeReader::new(
                         PATH_LIBRESPOT,
-                        "-n kani(Librespot) -b 320 --backend pipe",
+                        "-n kani -b 320 --backend pipe",
                         frame,
                         44100,
                         2,
@@ -472,7 +476,7 @@ pub fn start(frame: usize) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    play(r, w, dsp);
+                    play(r, w, dsp, no_level_meter);
                 } else if cmd == 8 {
                     if output_dev == CLI_DEV_INVALID {
                         log::error!("please select output device first");
@@ -490,7 +494,7 @@ pub fn start(frame: usize) {
                         let r = Box::new(r) as Box<dyn io::Input + Send>;
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
                         let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                        play(r, w, dsp);
+                        play(r, w, dsp, no_level_meter);
                     }
                 } else if cmd == 9 {
                     if input_dev == CLI_DEV_INVALID || output_dev == CLI_DEV_INVALID {
@@ -508,7 +512,7 @@ pub fn start(frame: usize) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    play(r, w, dsp);
+                    play(r, w, dsp, no_level_meter);
                 } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);
