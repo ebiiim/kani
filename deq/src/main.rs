@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use deq_io as io;
+use getopts::Options;
 use io::Status::*;
 use portaudio as pa;
 use std::env;
@@ -31,7 +32,7 @@ const DEFAULT_INPUT_DEV: &str = "Microsoft Sound Mapper - Input";
 #[cfg(target_os = "windows")]
 const DEFAULT_OUTPUT_DEV: &str = "Microsoft Sound Mapper - Output";
 
-const FRAME: usize = 1024;
+const DEFAULT_FRAME: usize = 1024;
 const CLI_DEV_INVALID: usize = usize::MAX;
 const TERM_CLEAR: &str = "\x1B[2J";
 const TERM_LEFT_TOP: &str = "\x1B[1;1H";
@@ -51,8 +52,40 @@ fn main() {
     };
     env_logger::init();
 
-    // start CLI
-    start();
+    // args
+    let args: Vec<String> = env::args().collect();
+    let bin = args[0].clone();
+
+    let mut opts = Options::new();
+    opts.optopt(
+        "f",
+        "",
+        &format!("set frame size (default: {})", DEFAULT_FRAME),
+        "FRAME",
+    );
+    opts.optflag("h", "help", "print usage");
+    let m = match opts.parse(&args[1..]) {
+        Ok(m) => m,
+        Err(e) => {
+            panic!("{}", e)
+        }
+    };
+    if m.opt_present("h") {
+        print_usage(&bin, opts);
+        process::exit(0);
+    }
+    let frame = m
+        .opt_str("f")
+        .unwrap_or(String::from(""))
+        .parse::<usize>()
+        .unwrap_or(DEFAULT_FRAME);
+
+    start(frame);
+}
+
+fn print_usage(bin: &str, opts: Options) {
+    let usage = format!("Usage: {} [-f FRAME]", bin);
+    print!("{}", opts.usage(&usage));
 }
 
 fn print_devices(pa: &pa::PortAudio) -> Result<()> {
@@ -170,7 +203,7 @@ pub fn play(
     let calc_gain = |v: f32| 20.0 * v.log10();
     let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
         let mut s = String::from("");
-        for i in 0..((max+2) / step) {
+        for i in 0..((max + 2) / step) {
             if i == (peak / step) {
                 s += "|";
             } else if i < (cur / step) {
@@ -324,7 +357,7 @@ fn read_vf2() -> String {
     std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""))
 }
 
-pub fn start() {
+pub fn start(frame: usize) {
     let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -398,7 +431,7 @@ pub fn start() {
                     let r = io::PipeReader::new(
                         PATH_LIBRESPOT,
                         "-n DEQ(Librespot) -b 320 --backend pipe",
-                        FRAME,
+                        frame,
                         44100,
                         2,
                     );
@@ -419,7 +452,6 @@ pub fn start() {
                         continue;
                     }
                     if let Ok(n) = read_str("file name> ") {
-                        let frame = FRAME;
                         let r = io::WaveReader::new(frame, &n).unwrap();
                         let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
                         let w = io::PAWriter::new(
@@ -438,7 +470,6 @@ pub fn start() {
                         log::error!("please select devices first");
                         continue;
                     }
-                    let frame = FRAME;
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
                     let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
                     let w = io::PAWriter::new(
