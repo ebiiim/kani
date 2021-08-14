@@ -479,6 +479,12 @@ impl Input for PipeReader {
                     self.cmd, self.args
                 )
             })?;
+        log::debug!(
+            "PipeReader::new pid={} cmd={} args={}",
+            process.id(),
+            self.cmd,
+            self.args
+        );
 
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
 
@@ -492,6 +498,7 @@ impl Input for PipeReader {
                 match cmd.unwrap() {
                     Cmd::Stop => {
                         log::debug!("PipeReader received Cmd::Stop so stop now");
+                        // TODO: send SIGTERM to terminate the process gracefully
                         break;
                     }
                     any => {
