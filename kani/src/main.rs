@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
-use kani_io as io;
 use getopts::Options;
 use io::Status::*;
+use kani_io as io;
 use portaudio as pa;
 use std::env;
 use std::io::{stdin, stdout, Write};
@@ -158,16 +158,20 @@ pub fn play(
     mut w: Box<dyn io::Output + Send>,
     mut dsp: Box<dyn io::Processor + Send>,
 ) {
-    // let channels below no rendezvous
+    // use sync channel to pace the reader so do not use async channel
+    // use small buffer and let channels no rendezvous
     let (tx1, rx1) = sync_channel(1);
     let (tx2, rx2) = sync_channel(1);
-    let (in_status_tx, status_rx) = sync_channel(1);
+
+    // please receive!
+    let (in_status_tx, status_rx) = sync_channel(0);
     let dsp_status_tx = in_status_tx.clone();
     let out_status_tx = in_status_tx.clone();
-    // channels below need 1 or more buffer or stuck
-    let (_in_cmd_tx, in_cmd_rx) = sync_channel(1);
-    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(1);
-    let (_out_cmd_tx, out_cmd_rx) = sync_channel(1);
+
+    // receivers do try_recv() so use try_send or make buffer>0
+    let (_in_cmd_tx, in_cmd_rx) = sync_channel(0);
+    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(0);
+    let (_out_cmd_tx, out_cmd_rx) = sync_channel(0);
 
     let frame = r.info().frame;
     let rate = r.info().rate;
@@ -263,9 +267,10 @@ pub fn play(
                     if &tmp != &current_vf2 {
                         log::info!("reload filters");
                         current_vf2 = tmp;
-                        dsp_cmd_tx
-                            .send(io::Cmd::Reload(current_vf2.clone()))
-                            .unwrap();
+                        match dsp_cmd_tx.try_send(io::Cmd::Reload(current_vf2.clone())) {
+                            Ok(_) => {}
+                            Err(e) => log::warn!("could not reload filters err={}", e),
+                        }
                     }
                 }
                 // draw CLI (every 100 ms)
