@@ -54,9 +54,12 @@ pub enum Status {
 
 #[derive(Debug)]
 pub enum Cmd {
-    /// Send config and reload
+    /// Processor reloads config when received this Cmd.
     Reload(String),
-    // TODO: Start, Stop, Pause?
+    /// Input stops when received this Cmd,
+    /// and then Processor & Output also stop as the tx channel close.
+    Stop,
+    // TODO: Start, Pause?
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -157,6 +160,19 @@ impl Input for WaveReader {
         // no return error after TxInit/RxInit
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
         loop {
+            // poll commands
+            let cmd = cmd_rx.try_recv();
+            if cmd.is_ok() {
+                match cmd.unwrap() {
+                    Cmd::Stop => {
+                        log::debug!("WaveReader received Cmd::Stop so stop now");
+                        break;
+                    }
+                    any => {
+                        log::trace!("WaveReader received cmd_rx={:?}", any);
+                    }
+                }
+            }
             let mut finished = false;
             let mut buf: Vec<i16> = Vec::with_capacity(spf);
             for _ in 0..spf {
@@ -261,8 +277,15 @@ impl Input for PAReader {
             // poll commands
             let cmd = cmd_rx.try_recv();
             if cmd.is_ok() {
-                // do nothing
-                log::trace!("PAReader cmd_rx={:?}", cmd);
+                match cmd.unwrap() {
+                    Cmd::Stop => {
+                        log::debug!("PAReader received Cmd::Stop so stop now");
+                        break;
+                    }
+                    any => {
+                        log::trace!("PAReader received cmd_rx={:?}", any);
+                    }
+                }
             }
             // process the frame
             match stream.read(frame) {
@@ -357,8 +380,16 @@ impl Output for PAWriter {
             // poll commands
             let cmd = cmd_rx.try_recv();
             if cmd.is_ok() {
-                // do nothing
-                log::trace!("PAWriter cmd_rx={:?}", cmd);
+                match cmd.unwrap() {
+                    // Upstream closes tx channel so this is not necessary
+                    // Cmd::Stop => {
+                    //     log::debug!("PAWriter received Cmd::Stop so stop now");
+                    //     break;
+                    // }
+                    any => {
+                        log::trace!("PAWriter received cmd_rx={:?}", any);
+                    }
+                }
             }
             // process the frame
             let e = stream.write(frame, |w| {
@@ -458,8 +489,15 @@ impl Input for PipeReader {
             // poll commands
             let cmd = cmd_rx.try_recv();
             if cmd.is_ok() {
-                // do nothing
-                log::trace!("PipeReader cmd_rx={:?}", cmd);
+                match cmd.unwrap() {
+                    Cmd::Stop => {
+                        log::debug!("PipeReader received Cmd::Stop so stop now");
+                        break;
+                    }
+                    any => {
+                        log::trace!("PipeReader received cmd_rx={:?}", any);
+                    }
+                }
             }
             // process the frame
             match o.read(&mut buf) {
@@ -484,11 +522,6 @@ impl Input for PipeReader {
                         // let data = i16_to_f32(&reinterpret_u8_to_i16(&mut buf).to_vec());
                         // tx.send(data).unwrap();
                         // status_tx.send(Status::TxAck(IO::Input)).unwrap();
-
-                        // // librespot closes pipe in every pause so no break here
-                        // // TODO: no way to end
-                        // // log::debug!("pipe ended");
-                        // // break;
                     } else {
                         // buf.read
                         log::trace!("read {} bytes from pipe", n);
@@ -653,11 +686,18 @@ impl Processor for DSP {
             // poll commands
             let cmd = cmd_rx.try_recv();
             if cmd.is_ok() {
-                log::trace!("DSP cmd_rx={:?}", cmd);
                 match cmd.unwrap() {
                     Cmd::Reload(s) => {
-                        log::debug!("DSP reload config={}", s);
+                        log::debug!("DSP received Cmd::Reload so reload config={}", s);
                         self.vf2 = parse_vec2ch(&s, self.info.rate as f32);
+                    }
+                    // Upstream closes tx channel so this is not necessary
+                    // Cmd::Stop => {
+                    //     log::debug!("DSP received Cmd::Stop so stop now");
+                    //     break;
+                    // }
+                    any => {
+                        log::trace!("DPS received cmd_rx={:?}", any);
                     }
                 }
             }

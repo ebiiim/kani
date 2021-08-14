@@ -6,7 +6,9 @@ use portaudio as pa;
 use std::env;
 use std::io::{stdin, stdout, Write};
 use std::process;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
 use std::thread;
 
 extern crate kani_filter;
@@ -168,10 +170,10 @@ pub fn play(
     let dsp_status_tx = in_status_tx.clone();
     let out_status_tx = in_status_tx.clone();
 
-    // receivers do try_recv() so use try_send or make buffer>0
-    let (_in_cmd_tx, in_cmd_rx) = sync_channel(0);
-    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(0);
-    let (_out_cmd_tx, out_cmd_rx) = sync_channel(0);
+    // receivers do try_recv() so use try_send and let buffer>0
+    let (in_cmd_tx, in_cmd_rx) = sync_channel(1);
+    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(1);
+    let (out_cmd_tx, out_cmd_rx) = sync_channel(1);
 
     let frame = r.info().frame;
     let rate = r.info().rate;
@@ -245,7 +247,24 @@ pub fn play(
         sec %= 60;
         format!("{:02}:{:02}:{:02}", h, m, sec)
     };
+
+    let sig = Arc::new(AtomicBool::new(false));
+    if signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&sig)).is_err() {
+        log::error!("could not register signal handler");
+        return;
+    }
+
     for s in status_rx {
+        if sig.load(Ordering::Relaxed) {
+            sig.store(false, Ordering::Relaxed);
+            if in_cmd_tx.try_send(io::Cmd::Stop).is_err()
+                || dsp_cmd_tx.try_send(io::Cmd::Stop).is_err()
+                || out_cmd_tx.try_send(io::Cmd::Stop).is_err()
+            {
+                log::error!("could not send stop");
+                return;
+            }
+        }
         match s {
             // check io::Status::*
             Latency(l) => {
@@ -346,6 +365,9 @@ pub fn play(
                 log::info!("{:?}", s);
             }
             TxInit(_) | RxInit(_) => {
+                log::info!("{:?}", s)
+            }
+            TxFin(_) | RxFin(_) => {
                 log::info!("{:?}", s)
             }
             TxErr(_) | RxErr(_) => {
