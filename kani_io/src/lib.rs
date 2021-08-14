@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use kani_filter::*;
 use portaudio as pa;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::io::prelude::*;
 use std::process::{Command, Stdio};
 use std::slice;
@@ -97,10 +98,21 @@ pub trait Processor {
     ) -> Result<()>;
 }
 
-#[derive(Debug)]
 pub struct WaveReader {
     info: Info,
     path: String,
+    reader: hound::WavReader<std::io::BufReader<std::fs::File>>,
+}
+
+impl Debug for WaveReader {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "io::WaveReader info={:?} path={}",
+            self.info(),
+            self.path
+        )
+    }
 }
 
 impl WaveReader {
@@ -121,6 +133,7 @@ impl WaveReader {
                 input_ch: 0,
                 output_ch: r.spec().channels as Ch,
             },
+            reader: r,
             path: String::from(path),
         })
     }
@@ -139,47 +152,38 @@ impl Input for WaveReader {
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
-        let mut reader = hound::WavReader::open(&self.path)
-            .with_context(|| format!("could not open wav path={}", &self.path))?;
-        // TODO: read in play loop to reduce load time
-        let buf: Vec<i16> = reader.samples().map(|s| s.unwrap()).collect();
-        let ch = self.info.output_ch;
-        let uframe = self.info.frame as usize * ch as usize;
-        let mut buf = i16_to_f32(&buf);
-        let zero_paddings = uframe - (buf.len() as usize % uframe);
-        let zeros = vec![0.0; zero_paddings];
-        buf.extend(zeros);
-        assert_eq!(buf.len() % uframe, 0);
-        let status_tx2 = status_tx.clone();
-        let loopnum = buf.len() / uframe;
-
+        // samples per frame
+        let spf = self.info.frame as usize * self.info.output_ch as usize;
         // no return error after TxInit/RxInit
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
-
-        for i in 0..loopnum {
-            // poll commands
-            let cmd = cmd_rx.try_recv();
-            if cmd.is_ok() {
-                // do nothing
-                log::trace!("WaveReader cmd_rx={:?}", cmd);
+        loop {
+            let mut finished = false;
+            let mut buf: Vec<i16> = Vec::with_capacity(spf);
+            for _ in 0..spf {
+                match self.reader.samples::<i16>().next() {
+                    Some(v) => buf.push(v.unwrap()),
+                    None => {
+                        buf.push(0);
+                        finished = true;
+                    }
+                }
             }
-            // process the frame
-            let a = i * uframe;
-            let b = (i + 1) * uframe;
-            let buf = buf[a..b].to_vec();
-            assert_eq!(buf.len(), uframe);
+            assert_eq!(buf.len(), spf);
+            let buf = i16_to_f32(&buf);
             match tx.send(buf) {
                 Ok(_) => {
-                    status_tx2.send(Status::TxAck(IO::Input)).unwrap();
+                    status_tx.send(Status::TxAck(IO::Input)).unwrap();
                 }
                 Err(e) => {
-                    status_tx2.send(Status::TxErr(IO::Input)).unwrap();
+                    status_tx.send(Status::TxErr(IO::Input)).unwrap();
                     log::error!("{}", e);
                 }
             }
+            if finished {
+                break;
+            }
         }
-
-        status_tx2.send(Status::TxFin(IO::Input)).unwrap();
+        status_tx.send(Status::TxFin(IO::Input)).unwrap();
         Ok(())
     }
 }
