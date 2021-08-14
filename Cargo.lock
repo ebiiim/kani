@@ -47,41 +47,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "deq"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "deq_filter",
- "deq_io",
- "env_logger",
- "getopts",
- "hound",
- "log",
- "portaudio",
-]
-
-[[package]]
-name = "deq_filter"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "log",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "deq_io"
-version = "0.1.0-dev"
-dependencies = [
- "anyhow",
- "deq_filter",
- "hound",
- "log",
- "portaudio",
-]
-
-[[package]]
 name = "env_logger"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -129,6 +94,41 @@ name = "itoa"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
+
+[[package]]
+name = "kani"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "getopts",
+ "hound",
+ "kani_filter",
+ "kani_io",
+ "log",
+ "portaudio",
+]
+
+[[package]]
+name = "kani_filter"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kani_io"
+version = "0.1.0-dev"
+dependencies = [
+ "anyhow",
+ "hound",
+ "kani_filter",
+ "log",
+ "portaudio",
+]
 
 [[package]]
 name = "libc"

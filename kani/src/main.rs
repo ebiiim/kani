@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use deq_io as io;
+use kani_io as io;
 use getopts::Options;
 use io::Status::*;
 use portaudio as pa;
@@ -9,8 +9,8 @@ use std::process;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
-extern crate deq_filter;
-extern crate deq_io;
+extern crate kani_filter;
+extern crate kani_io;
 
 const PATH_FILTERS: &str = "filters.json";
 
@@ -430,7 +430,7 @@ pub fn start(frame: usize) {
                     }
                     let r = io::PipeReader::new(
                         PATH_LIBRESPOT,
-                        "-n DEQ(Librespot) -b 320 --backend pipe",
+                        "-n kani(Librespot) -b 320 --backend pipe",
                         frame,
                         44100,
                         2,

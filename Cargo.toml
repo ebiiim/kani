@@ -1,6 +1,6 @@
 [workspace]
 members = [
-  "deq",
-  "deq_filter",
-  "deq_io",
+  "kani",
+  "kani_filter",
+  "kani_io",
 ]

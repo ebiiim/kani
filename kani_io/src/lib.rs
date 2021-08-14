@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use deq_filter::*;
+use kani_filter::*;
 use portaudio as pa;
 use std::collections::VecDeque;
 use std::io::prelude::*;
@@ -8,7 +8,7 @@ use std::slice;
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::time;
 
-extern crate deq_filter;
+extern crate kani_filter;
 
 type Frame = usize;
 type Rate = usize;

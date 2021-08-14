@@ -1,14 +1,14 @@
 [package]
-name = "deq_io"
+name = "kani_io"
 version = "0.1.0-dev"
 authors = ["Shunsuke Ise <ise@ebiiim.com>"]
 edition = "2018"
-description = "I/O for DEQ"
-repository = "https://github.com/ebiiim/deq"
+description = "I/O for kani"
+repository = "https://github.com/ebiiim/kani"
 license = "MIT"
 
-[dependencies.deq_filter]
-path = "../deq_filter"
+[dependencies.kani_filter]
+path = "../kani_filter"
 version = "0.1.0-dev"
 
 [dependencies]

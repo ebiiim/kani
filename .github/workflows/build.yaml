@@ -65,7 +65,7 @@ jobs:
 
       - name: install portaudio (cross)
         if: matrix.name == 'linux_armv7'
-        run: docker build -t deq/cross_armv7 ./
+        run: docker build -t kani/cross_armv7 ./
 
       # Test & Build
 
@@ -127,7 +127,7 @@ jobs:
         run: |
           cd .. && git clone https://github.com/librespot-org/librespot && cd librespot
           cargo install cross || true
-          cp ../deq/Cross.toml .
+          cp ../kani/Cross.toml .
           cross build --release --target ${{ matrix.target }} --no-default-features
 
       - name: bundle
@@ -135,8 +135,8 @@ jobs:
           DIST=${{ env.DIST }}
           mkdir -p ${DIST}
 
-          cp target/release/deq{,.exe} ${DIST} || true
-          cp target/${{ matrix.target }}/release/deq ${DIST} || true
+          cp target/release/kani{,.exe} ${DIST} || true
+          cp target/${{ matrix.target }}/release/kani ${DIST} || true
 
           cp filters.json ${DIST}
           cp README.md ${DIST}

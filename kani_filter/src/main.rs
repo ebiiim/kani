@@ -1,7 +1,7 @@
-use deq_filter as f;
-use deq_filter::Filter;
-use deq_filter::{BQFParam, BQFType, BiquadFilter};
-use deq_filter::{Volume, VolumeCurve};
+use kani_filter as f;
+use kani_filter::Filter;
+use kani_filter::{BQFParam, BQFType, BiquadFilter};
+use kani_filter::{Volume, VolumeCurve};
 
 fn run_dump_coeffs() {
     let fs = 48000.0;
