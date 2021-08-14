@@ -38,6 +38,13 @@ const DEFAULT_FRAME: usize = 1024;
 const CLI_DEV_INVALID: usize = usize::MAX;
 const TERM_CLEAR: &str = "\x1B[2J";
 const TERM_LEFT_TOP: &str = "\x1B[1;1H";
+const TERM_C_END: &str = "\x1B[0m";
+const TERM_C_LRED: &str = "\x1B[91m";
+const TERM_C_LGREEN: &str = "\x1B[92m";
+const TERM_C_LYELLOW: &str = "\x1B[93m";
+const TERM_C_LBLUE: &str = "\x1B[93m";
+const TERM_C_LMAGENTA: &str = "\x1B[95m";
+const TERM_C_LCYAN: &str = "\x1B[96m";
 
 fn main() {
     // init logger
@@ -209,29 +216,36 @@ pub fn play(
     let mut r_peak_out = 0.0;
     let calc_gain = |v: f32| 20.0 * v.log10();
     let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
+        let yellow = 3;
         let mut s = String::from("");
         for i in 0..((max + 2) / step) {
-            if i == (peak / step) {
-                s += "|";
+            if i == (peak / step) && i > max / step - yellow {
+                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
+            } else if i == (peak / step) {
+                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
+            } else if i < (cur / step) && i > max / step - yellow {
+                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
             } else if i < (cur / step) {
-                s += "|";
+                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
+            } else if i > max / step - yellow {
+                s += &format!("{}.{}", TERM_C_LYELLOW, TERM_C_END);
             } else {
-                s += ".";
+                s += &format!("{}.{}", TERM_C_LGREEN, TERM_C_END);
             }
         }
         s
     };
     let draw_volume = |ch: &str, rms: f32, peak: f32, max: isize, step: isize| {
-        let mut over1 = " ";
-        let mut over2 = "";
+        let mut over1 = format!("{}.{}", TERM_C_LRED, TERM_C_END);
+        let mut over2 = String::from("");
         let rms_db = calc_gain(rms);
         let peak_db = calc_gain(peak);
         if peak_db > 1.0 {
-            over1 = "*";
-            over2 = " OVR";
+            over1 = format!("{}|{}", TERM_C_LRED, TERM_C_END);
+            over2 = format!(" {}OVR{}", TERM_C_LRED, TERM_C_END);
         }
-        // L |||||||||||||||||||||.........* +0.3 OVR
-        // R |||||||||||||||||||.....|.....  -1.6
+        // L |||||||||||||||||||||||........| +0.8 OVR
+        // R ||||||||||||||||||...........|.. -1.2
         format!(
             "{} {}{} {:+.1}{}\n",
             ch,
