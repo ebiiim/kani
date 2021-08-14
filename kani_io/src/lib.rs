@@ -841,18 +841,18 @@ fn setup_vf(fs: f32) -> (VecFilters, VecFilters) {
 }
 
 fn setup_vf2(fs: f32) -> VecFilters2ch {
-    let pf = PairedFilter::newb(
-        // NopFilter::newb(),
-        // NopFilter::newb(),
-        Volume::newb(VolumeCurve::Gain, -6.0),
-        Volume::newb(VolumeCurve::Gain, -6.0),
+    let pf1 = PairedFilter::newb(
+        Volume::newb(VolumeCurve::Gain, -12.0),
+        Volume::newb(VolumeCurve::Gain, -12.0),
         fs,
     );
+    // let pf2 = PairedFilter::newb(ReverbBeta::newb(fs), ReverbBeta::newb(fs), fs);
+    let pf3 = Reverb2Beta::newb(fs);
     let vf2: VecFilters2ch = vec![
-        pf,
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240.0, 4400.0), fs),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240.0, 4400.0), fs),
+        pf3, pf1,
     ];
     log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
     vf2
