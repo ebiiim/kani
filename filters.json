@@ -1,18 +1,19 @@
 [
     {
-        "_ft": "FTReverb2Beta"
+        "_ft": "FTCrossfeedBeta",
+        "basefq": 3600.0
     },
     {
         "_ft": "FTPaired",
         "l": {
             "_ft": "FTVolume",
             "curve": "Gain",
-            "val": -12.0
+            "val": -2.0
         },
         "r": {
             "_ft": "FTVolume",
             "curve": "Gain",
-            "val": -12.0
+            "val": -2.0
         }
     }
 ]

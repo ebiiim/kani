@@ -88,7 +88,7 @@ enum FilterType {
     // 2ch
     FTPaired,
     FTVocalRemover,
-    FTReverb2Beta,
+    FTCrossfeedBeta,
 }
 
 impl Default for FilterType {
@@ -866,8 +866,9 @@ impl Filter2ch for VocalRemover {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Reverb2Beta {
+pub struct CrossfeedBeta {
     _ft: FilterType,
+    basefq: f32,
     #[serde(skip)]
     fs: f32,
     #[serde(skip)]
@@ -920,17 +921,18 @@ pub struct Reverb2Beta {
     rl6: BiquadFilter,
 }
 
-impl Reverb2Beta {
-    pub fn new(fs: f32) -> Self {
+impl CrossfeedBeta {
+    pub fn new(basefq: f32, fs: f32) -> Self {
         let mut f = Self {
-            _ft: FilterType::FTReverb2Beta,
+            _ft: FilterType::FTCrossfeedBeta,
+            basefq,
             ..Default::default()
         };
         f.init(fs);
         f
     }
     pub fn init(&mut self, fs: f32) {
-        log::debug!("filter::Reverb2Beta");
+        log::debug!("filter::CrossfeedBeta");
         self.fs = fs;
         let primes = [113, 229, 349, 463, 601, 733, 863, 1013];
         self.ld1 = Delay::new(primes[0], self.fs);
@@ -945,21 +947,25 @@ impl Reverb2Beta {
         self.rd4 = Delay::new(primes[3], self.fs);
         self.rd5 = Delay::new(primes[4], self.fs);
         self.rd6 = Delay::new(primes[5], self.fs);
-        self.ll1 = BiquadFilter::new(BQFType::LowPass, self.fs, 4000.0, 0.0, BQFParam::Q(0.707));
-        self.ll2 = BiquadFilter::new(BQFType::LowPass, self.fs, 3600.0, 0.0, BQFParam::Q(0.707));
-        self.ll3 = BiquadFilter::new(BQFType::LowPass, self.fs, 3200.0, 0.0, BQFParam::Q(0.707));
-        self.ll4 = BiquadFilter::new(BQFType::LowPass, self.fs, 2800.0, 0.0, BQFParam::Q(0.707));
-        self.ll5 = BiquadFilter::new(BQFType::LowPass, self.fs, 2400.0, 0.0, BQFParam::Q(0.707));
-        self.ll6 = BiquadFilter::new(BQFType::LowPass, self.fs, 2000.0, 0.0, BQFParam::Q(0.707));
-        self.rl1 = BiquadFilter::new(BQFType::LowPass, self.fs, 4000.0, 0.0, BQFParam::Q(0.707));
-        self.rl2 = BiquadFilter::new(BQFType::LowPass, self.fs, 3600.0, 0.0, BQFParam::Q(0.707));
-        self.rl3 = BiquadFilter::new(BQFType::LowPass, self.fs, 3200.0, 0.0, BQFParam::Q(0.707));
-        self.rl4 = BiquadFilter::new(BQFType::LowPass, self.fs, 2800.0, 0.0, BQFParam::Q(0.707));
-        self.rl5 = BiquadFilter::new(BQFType::LowPass, self.fs, 2400.0, 0.0, BQFParam::Q(0.707));
-        self.rl6 = BiquadFilter::new(BQFType::LowPass, self.fs, 2000.0, 0.0, BQFParam::Q(0.707));
+        // attenuation
+        // y=0 => 100%, y=1 => 90%, y=2 => 80%, ...
+        let a = |x: f32, y: isize| x - (x * 0.1 * y as f32);
+        let b = self.basefq;
+        self.ll1 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 0), 0.0, BQFParam::Q(0.707));
+        self.ll2 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 1), 0.0, BQFParam::Q(0.707));
+        self.ll3 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 2), 0.0, BQFParam::Q(0.707));
+        self.ll4 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 3), 0.0, BQFParam::Q(0.707));
+        self.ll5 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 4), 0.0, BQFParam::Q(0.707));
+        self.ll6 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 5), 0.0, BQFParam::Q(0.707));
+        self.rl1 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 0), 0.0, BQFParam::Q(0.707));
+        self.rl2 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 1), 0.0, BQFParam::Q(0.707));
+        self.rl3 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 2), 0.0, BQFParam::Q(0.707));
+        self.rl4 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 3), 0.0, BQFParam::Q(0.707));
+        self.rl5 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 4), 0.0, BQFParam::Q(0.707));
+        self.rl6 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 5), 0.0, BQFParam::Q(0.707));
     }
-    pub fn newb(fs: f32) -> BoxedFilter2ch {
-        Box::new(Self::new(fs))
+    pub fn newb(basefq: f32, fs: f32) -> BoxedFilter2ch {
+        Box::new(Self::new(basefq, fs))
     }
     pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         let l1 = self.ld1.apply(&self.ll1.apply(l));
@@ -1019,7 +1025,7 @@ impl Reverb2Beta {
     }
 }
 
-impl Filter2ch for Reverb2Beta {
+impl Filter2ch for CrossfeedBeta {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
         self.apply(l, r)
     }
@@ -1226,10 +1232,10 @@ pub fn json_to_filter2ch(s: &str, fs: f32) -> Result<BoxedFilter2ch> {
             f.init(fs);
             Ok(f)
         }
-        FilterType::FTReverb2Beta => {
-            let mut f = Box::<Reverb2Beta>::new(
+        FilterType::FTCrossfeedBeta => {
+            let mut f = Box::<CrossfeedBeta>::new(
                 serde_json::from_str(s)
-                    .with_context(|| format!("could not deserialize Reverb2Beta {}", s))?,
+                    .with_context(|| format!("could not deserialize CrossfeedBeta {}", s))?,
             );
             f.init(fs);
             Ok(f)

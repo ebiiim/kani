@@ -850,7 +850,7 @@ fn setup_vf2(fs: f32) -> VecFilters2ch {
         fs,
     );
     // let pf2 = PairedFilter::newb(ReverbBeta::newb(fs), ReverbBeta::newb(fs), fs);
-    let pf3 = Reverb2Beta::newb(fs);
+    let pf3 = CrossfeedBeta::newb(3600.0, fs);
     let vf2: VecFilters2ch = vec![
         // VocalRemover::newb(VocalRemoverType::RemoveCenter),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
