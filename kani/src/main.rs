@@ -240,7 +240,8 @@ pub fn play(
         let mut over2 = String::from("");
         let rms_db = calc_gain(rms);
         let peak_db = calc_gain(peak);
-        if peak_db > 1.0 {
+        // clipping occurs in i16
+        if peak_db > 1.0 / 32768.0 {
             over1 = format!("{}|{}", TERM_C_LRED, TERM_C_END);
             over2 = format!(" {}OVR{}", TERM_C_LRED, TERM_C_END);
         }
@@ -249,10 +250,15 @@ pub fn play(
         format!(
             "{} {}{} {:+.1}{}\n",
             ch,
-            draw_bar(max + rms_db as isize, max + peak_db as isize, max, step),
+            draw_bar(
+                max + rms_db.ceil() as isize,
+                max + peak_db.ceil() as isize,
+                max,
+                step
+            ),
             over1,
             peak_db,
-            over2
+            over2,
         )
     };
     let draw_time = |mut sec: usize| {
@@ -267,6 +273,7 @@ pub fn play(
     let sig = Arc::new(AtomicBool::new(false));
     let sig2 = sig.clone();
     let _ = thread::spawn(move || {
+        // TODO: need press Enter once anyway
         read_str("").unwrap(); // wait for input
         sig2.store(true, Ordering::Relaxed);
     });
