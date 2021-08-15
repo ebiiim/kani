@@ -499,6 +499,9 @@ impl Input for PipeReader {
                     Cmd::Stop => {
                         log::debug!("PipeReader received Cmd::Stop so stop now");
                         // TODO: send SIGTERM to terminate the process gracefully
+                        if let Err(e) = process.kill() {
+                            log::error!("PipeReader could not kill the process as {}", e);
+                        }
                         break;
                     }
                     any => {

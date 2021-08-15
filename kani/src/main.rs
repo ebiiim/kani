@@ -203,7 +203,7 @@ pub fn play(
     let mut count: u64 = 0;
     // prepare avg latency
     let mut latency_avg = 0.0f64;
-    let avg_sec = 10;
+    let avg_sec = 2;
     let n = rate as u64 / frame as u64 * avg_sec;
     // prepare RMS and peak
     let mut l_rms_in = 0.0;
@@ -263,13 +263,16 @@ pub fn play(
         format!("{:02}:{:02}:{:02}", h, m, sec)
     };
 
+    // press Enter to stop
     let sig = Arc::new(AtomicBool::new(false));
-    if signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&sig)).is_err() {
-        log::error!("could not register signal handler");
-        return;
-    }
+    let sig2 = sig.clone();
+    let _ = thread::spawn(move || {
+        read_str("").unwrap(); // wait for input
+        sig2.store(true, Ordering::Relaxed);
+    });
 
     for s in status_rx {
+        // stop?
         if sig.load(Ordering::Relaxed) {
             sig.store(false, Ordering::Relaxed);
             if in_cmd_tx.try_send(io::Cmd::Stop).is_err()
@@ -288,7 +291,7 @@ pub fn play(
                 count += 1;
                 // once every avg_sec
                 if count % n == 0 {
-                    log::info!(
+                    log::debug!(
                         "DSP latency ({}s avg): {:.3} ms | total frames: {}",
                         avg_sec,
                         latency_avg / 1000.0,
@@ -301,9 +304,8 @@ pub fn play(
                     if &tmp != &current_vf2 {
                         log::info!("reload filters");
                         current_vf2 = tmp;
-                        match dsp_cmd_tx.try_send(io::Cmd::Reload(current_vf2.clone())) {
-                            Ok(_) => {}
-                            Err(e) => log::warn!("could not reload filters err={}", e),
+                        if let Err(e) = dsp_cmd_tx.try_send(io::Cmd::Reload(current_vf2.clone())) {
+                            log::warn!("could not reload filters err={}", e)
                         }
                     }
                 }
@@ -322,7 +324,7 @@ pub fn play(
                     let r_in_bar = draw_volume("R", r_rms_in, r_peak_in, 60, 2);
                     let l_out_bar = draw_volume("L", l_rms_out, l_peak_out, 60, 2);
                     let r_out_bar = draw_volume("R", r_rms_out, r_peak_out, 60, 2);
-                    let note = "use Ctrl+C to stop\n";
+                    let note = "use Enter/Return to stop\n";
                     print!(
                         "{}{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
                         TERM_CLEAR,
@@ -431,19 +433,20 @@ pub fn start(frame: usize, no_level_meter: bool) {
             Ok(cmd) => {
                 if cmd == 1 {
                     println!("PortAudio version: {}", pa::version());
-                    let dc = pa.device_count();
-                    if dc.is_err() {
-                        log::error!("could not fetch devices");
-                        continue;
+                    match pa.device_count() {
+                        Ok(dc) => println!("Device count: {}", dc),
+                        Err(e) => {
+                            log::error!("could not fetch devices as {}", e);
+                            continue;
+                        }
                     }
-                    println!("Device count: {}", dc.unwrap());
-                    if print_devices(pa).is_err() {
-                        log::error!("could not print devices");
+                    if let Err(e) = print_devices(pa) {
+                        log::error!("could not print devices as {}", e);
                     }
                 } else if cmd == 2 {
                     if let Ok(n) = read_int("see device> ") {
-                        if print_device_info(pa, n).is_err() {
-                            log::error!("could not find device id={}", n);
+                        if let Err(e) = print_device_info(pa, n) {
+                            log::error!("could not find device id={} as {}", n, e);
                         }
                     }
                 } else if cmd == 3 {
@@ -476,7 +479,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     }
                     let r = io::PipeReader::new(
                         PATH_LIBRESPOT,
-                        "-n kani -b 320 --backend pipe",
+                        "-n kani -b 320 --backend pipe --initial-volume 100",
                         frame,
                         44100,
                         2,
@@ -492,6 +495,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
                     play(r, w, dsp, no_level_meter);
+                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                 } else if cmd == 8 {
                     if output_dev == CLI_DEV_INVALID {
                         log::error!("please select output device first");
@@ -510,6 +514,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
                         let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
                         play(r, w, dsp, no_level_meter);
+                        print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                     }
                 } else if cmd == 9 {
                     if input_dev == CLI_DEV_INVALID || output_dev == CLI_DEV_INVALID {
@@ -528,6 +533,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
                     play(r, w, dsp, no_level_meter);
+                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                 } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);
