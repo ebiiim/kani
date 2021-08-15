@@ -307,11 +307,12 @@ pub fn play(
                         }
                     }
                 }
-                // draw CLI (every 100 ms)
+                // draw CLI
                 if no_level_meter {
                     continue;
                 }
-                if count % ((rate / frame) as f32 * 0.1) as u64 == 0 {
+                let fps = 20;
+                if count % ((rate / frame) as f32 / fps as f32) as u64 == 0 {
                     let status = format!(
                         "Time\t{}\nLatency\t{:.2} ms\n",
                         draw_time(count as usize / (rate / frame)),
