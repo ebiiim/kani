@@ -237,7 +237,7 @@ pub fn play(
     };
     let draw_volume = |ch: &str, rms: f32, peak: f32, max: isize, step: isize| {
         let mut over1 = format!("{}.{}", TERM_C_LRED, TERM_C_END);
-        let mut over2 = String::from("");
+        let mut over2 = String::from("    ");
         let rms_db = calc_gain(rms);
         let peak_db = calc_gain(peak);
         // clipping occurs in i16
@@ -248,7 +248,7 @@ pub fn play(
         // L |||||||||||||||||||||||........| +0.8 OVR
         // R ||||||||||||||||||...........|.. -1.2
         format!(
-            "{} {}{} {:+.1}{}\n",
+            "{} {}{} {:+.1}{} \n", // one extra space to clear term
             ch,
             draw_bar(
                 max + rms_db.ceil() as isize,
@@ -333,15 +333,8 @@ pub fn play(
                     let r_out_bar = draw_volume("R", r_rms_out, r_peak_out, 60, 2);
                     let note = "use Enter/Return to stop\n";
                     print!(
-                        "{}{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
-                        TERM_CLEAR,
-                        TERM_LEFT_TOP,
-                        status,
-                        l_in_bar,
-                        r_in_bar,
-                        l_out_bar,
-                        r_out_bar,
-                        note
+                        "{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
+                        TERM_LEFT_TOP, status, l_in_bar, r_in_bar, l_out_bar, r_out_bar, note
                     )
                 }
             }
@@ -501,6 +494,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                     play(r, w, dsp, no_level_meter);
                     print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                 } else if cmd == 8 {
@@ -520,6 +514,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                         let r = Box::new(r) as Box<dyn io::Input + Send>;
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
                         let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                        print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                         play(r, w, dsp, no_level_meter);
                         print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                     }
@@ -539,6 +534,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
+                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                     play(r, w, dsp, no_level_meter);
                     print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
                 } else if cmd == 0 {
