@@ -320,7 +320,7 @@ pub fn play(
                 if no_level_meter {
                     continue;
                 }
-                let fps = 20;
+                let fps = 30;
                 if count % ((rate / frame) as f32 / fps as f32) as u64 == 0 {
                     let status = format!(
                         "Time\t{}\nLatency\t{:.2} ms\n",
