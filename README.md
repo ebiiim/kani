@@ -1,20 +1,22 @@
-# ♪
+# kani🦀
 
-**_Work In Progress_**
+<sup>"kani" means club in Japanese</sup>
 
-A toy audio processor I made in my holidays just for fun :D
+Toy audio processor I made in my holidays for fun :D **_(Work In Progress)_**
 
-## Basic Concepts
+![docs/demo.gif](https://raw.githubusercontent.com/ebiiim/kani/main/docs/demo.gif)
+
+## Design
 
 ```
     Input          Configurable Audio Processor          Output
 ┌───────────┐      ┌──────┬──────┬──────┬──────┐      ┌───────────┐
 │           │ L ch │      │      │      │      │ L ch │           │
-│           │  ┌──►│ LPF  │  EQ  │  EQ  │ Gain ├──┐   │           │
+│           │  ┌──►│  LPF │  EQ  │  EQ  │      ├──┐   │           │
+│           │  │   │      │      │      │ Cross│  │   │           │
+│  Line In  ├──┤   ├──────┼──────┼──────┤ feed │  ├──►│ Line Out  │
 │           │  │   │      │      │      │      │  │   │           │
-│  Line In  ├──┤   ├──────┼──────┼──────┼──────┤  ├──►│ Line Out  │
-│           │  │   │      │      │      │      │  │   │           │
-│           │  └──►│ LPF  │ None │  EQ  │ Gain ├──┘   │           │
+│           │  └──►│  LPF │  EQ  │ None │      ├──┘   │           │
 │           │ R ch │      │      │      │      │ R ch │           │
 └───────────┘      └──────┴──────┴──────┴──────┘      └───────────┘
 ```
@@ -26,23 +28,29 @@ A toy audio processor I made in my holidays just for fun :D
     - [x] Volume
     - [x] Parametric Equalizer (Biquad Filter)
         - Low Pass / High Pass / Peak EQ / High Shelf / Low Shelf
+    - [x] Delay
+    - [x] Crossfeed (just might work)
     - [x] Vocal Remover (just might work)
-    - [x] Convolver (super slow toy implementation)
+    - [x] Convolver (super slow non-FFT implementation)
     - [ ] FFT
+    - [x] Normalizer (ajusts volume when detects signal > 1.0)
 - Input / Output
     - [x] Audio Interfaces (using PortAudio, ~200ms latency)
     - [x] Files (currently 2ch 16bit WAVE only)
     - [x] Pipe
     - [x] Spotify Connect (using librespot & pipe)
 - User Interfaces
-    - [x] CLI (minimal one)
-    - [x] Config (Import / Export)
+    - [x] CLI
+      - [x] with cool RMS meter🥰
     - [ ] GUI
-    - [x] Update DSP config during playback
+    - [x] Config (Import / Export)
+      - [x] Update DSP config during playback
 - Supported Platforms (should work on same platforms as PortAudio)
-    - [x] Windows
     - [x] Linux
+      - [x] ARMv7
     - [x] macOS
+    - [x] Windows
+      - [ ] ASIO
 
 ## Build
 
@@ -68,8 +76,10 @@ sudo apt-get install build-essential libasound2-dev
 cargo install librespot
 ```
 
-### Compile
+### Run
 
 ```sh
-cargo build --release
+git clone https://github.com/ebiiim/kani && cd kani
+cp ~/.cargo/bin/librespot{,.exe} .
+cargo run --release
 ```
