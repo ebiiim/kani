@@ -89,6 +89,7 @@ enum FilterType {
     FTPaired,
     FTVocalRemover,
     FTCrossfeedBeta,
+    FTNormalizer2ch,
 }
 
 impl Default for FilterType {
@@ -1038,6 +1039,71 @@ impl Filter2ch for CrossfeedBeta {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
+pub struct Normalizer2ch {
+    _ft: FilterType,
+    #[serde(skip)]
+    cur_max: f32,
+    #[serde(skip)]
+    lv: Volume,
+    #[serde(skip)]
+    rv: Volume,
+}
+
+impl Normalizer2ch {
+    pub fn new() -> Self {
+        let mut f = Self {
+            _ft: FilterType::FTNormalizer2ch,
+            ..Default::default()
+        };
+        f.init();
+        f
+    }
+    pub fn init(&mut self) {
+        log::debug!("filter::Normalizer2ch");
+        self.cur_max = 1.0;
+        self.lv = Volume::new(VolumeCurve::Linear, 1.);
+        self.rv = Volume::new(VolumeCurve::Linear, 1.);
+    }
+    pub fn newb() -> BoxedFilter2ch {
+        Box::new(Self::new())
+    }
+    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        // check max
+        let lmax = l.iter().fold(0.0f32, |cur_max, &x| cur_max.max(x.abs()));
+        let rmax = r.iter().fold(0.0f32, |cur_max, &x| cur_max.max(x.abs()));
+        let lrmax = lmax.max(rmax);
+        if self.cur_max < lrmax {
+            self.cur_max = lrmax;
+            self.lv = Volume::new(VolumeCurve::Linear, 1. / self.cur_max);
+            self.rv = Volume::new(VolumeCurve::Linear, 1. / self.cur_max);
+            log::debug!("filter::Normalizer2ch set volume to {}", 1. / self.cur_max);
+        }
+
+        let lo = self.lv.apply(l);
+        let ro = self.rv.apply(r);
+        return (lo, ro);
+    }
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
+    pub fn from_json(s: &str) -> Self {
+        serde_json::from_str(s).unwrap()
+    }
+}
+
+impl Filter2ch for Normalizer2ch {
+    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        self.apply(l, r)
+    }
+    fn to_json(&self) -> String {
+        self.to_json()
+    }
+    fn init(&mut self, _fs: f32) {
+        self.init();
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct NopFilter {
     _ft: FilterType,
 }
@@ -1238,6 +1304,14 @@ pub fn json_to_filter2ch(s: &str, fs: f32) -> Result<BoxedFilter2ch> {
                     .with_context(|| format!("could not deserialize CrossfeedBeta {}", s))?,
             );
             f.init(fs);
+            Ok(f)
+        }
+        FilterType::FTNormalizer2ch => {
+            let mut f = Box::<Normalizer2ch>::new(
+                serde_json::from_str(s)
+                    .with_context(|| format!("could not deserialize Normalizer2ch {}", s))?,
+            );
+            f.init();
             Ok(f)
         }
         FilterType::FTPaired => {

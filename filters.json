@@ -1,19 +1,22 @@
 [
     {
         "_ft": "FTCrossfeedBeta",
-        "basefq": 3600.0
+        "basefq": 1600.0
     },
     {
         "_ft": "FTPaired",
         "l": {
             "_ft": "FTVolume",
             "curve": "Gain",
-            "val": -2.0
+            "val": 3.0
         },
         "r": {
             "_ft": "FTVolume",
             "curve": "Gain",
-            "val": -2.0
+            "val": 3.0
         }
+    },
+    {
+        "_ft": "FTNormalizer2ch"
     }
 ]
