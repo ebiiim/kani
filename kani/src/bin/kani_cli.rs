@@ -1,15 +1,14 @@
 use anyhow::{bail, Context, Result};
 use getopts::Options;
-use io::Status::*;
 use kani_io as io;
 use portaudio as pa;
 use std::env;
 use std::io::{stdin, stdout, Write};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
+use std::time;
 
 extern crate kani_filter;
 extern crate kani_io;
@@ -47,7 +46,15 @@ const TERM_C_LMAGENTA: &str = "\x1B[95m";
 const TERM_C_LCYAN: &str = "\x1B[96m";
 
 fn main() {
-    // init logger
+    init_logger();
+    let cliargs = parse_args_or_exit(env::args().collect());
+    loop {
+        let p = start_player_or_exit(cliargs.frame);
+        draw_cli_loop(p, cliargs.no_level_meter);
+    }
+}
+
+fn init_logger() {
     let log_levels = ["error", "warn", "info", "debug", "trace"];
     let log_default = log_levels[1]; // default log level: warn
     let log_env = "RUST_LOG";
@@ -60,9 +67,19 @@ fn main() {
         }
     };
     env_logger::init();
+}
 
-    // args
-    let args: Vec<String> = env::args().collect();
+struct CliArgs {
+    frame: usize,
+    no_level_meter: bool,
+}
+
+fn print_usage(bin: &str, opts: Options) {
+    let usage = format!("Usage: {} [-f FRAME] [-n]", bin);
+    print!("{}", opts.usage(&usage));
+}
+
+fn parse_args_or_exit(args: Vec<String>) -> CliArgs {
     let bin = args[0].clone();
     let mut opts = Options::new();
     opts.optopt(
@@ -89,333 +106,13 @@ fn main() {
         .parse::<usize>()
         .unwrap_or(DEFAULT_FRAME);
     let no_level_meter = m.opt_present("n");
-    start(frame, no_level_meter);
-}
-
-fn print_usage(bin: &str, opts: Options) {
-    let usage = format!("Usage: {} [-f FRAME] [-n]", bin);
-    print!("{}", opts.usage(&usage));
-}
-
-fn print_devices(pa: &pa::PortAudio) -> Result<()> {
-    let device_names = io::get_device_names(pa)?;
-    device_names.iter().for_each(|(idx, name)| {
-        println!("{}\t{}", idx, name);
-    });
-    Ok(())
-}
-
-fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<()> {
-    let devinfo = io::get_device_info(pa, idx)?;
-    println!("{:#?}", devinfo);
-    Ok(())
-}
-
-fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize> {
-    let mut dev = CLI_DEV_INVALID;
-    let device_names = io::get_device_names(pa)?;
-    device_names.iter().for_each(|(idx, name)| {
-        if name == n {
-            dev = *idx;
-        }
-    });
-    if dev == CLI_DEV_INVALID {
-        bail!("device \"{}\" not found", n);
-    } else {
-        Ok(dev)
+    CliArgs {
+        frame,
+        no_level_meter,
     }
 }
 
-fn get_default_devices(pa: &pa::PortAudio) -> (usize, usize) {
-    let (mut input_dev, mut output_dev) = (CLI_DEV_INVALID, CLI_DEV_INVALID);
-    if let Ok(dev) = get_device_by_name(pa, DEFAULT_INPUT_DEV) {
-        input_dev = dev;
-    } else {
-        log::error!("could not find device \"{}\"", DEFAULT_INPUT_DEV);
-    }
-    if let Ok(dev) = get_device_by_name(pa, DEFAULT_OUTPUT_DEV) {
-        output_dev = dev;
-    } else {
-        log::error!("could not find device \"{}\"", DEFAULT_OUTPUT_DEV);
-    }
-    (input_dev, output_dev)
-}
-
-fn read_str(s: &str) -> Result<String> {
-    print!("{}", s);
-    stdout().flush().with_context(|| "coult not flush stdout")?;
-    let mut input = String::new();
-    stdin()
-        .read_line(&mut input)
-        .with_context(|| "coult not read line")?;
-    log::trace!("read_str={}", input);
-    Ok(input.trim().to_string())
-}
-
-fn read_int(s: &str) -> Result<usize> {
-    let read = read_str(s)?.trim().parse();
-    if read.is_err() {
-        bail!("could not parse {} to int", s);
-    }
-    let read = read.unwrap();
-    log::trace!("read_int={:?}", read);
-    Ok(read)
-}
-
-pub fn play(
-    mut r: Box<dyn io::Input + Send>,
-    mut w: Box<dyn io::Output + Send>,
-    mut dsp: Box<dyn io::Processor + Send>,
-    no_level_meter: bool,
-) {
-    // use sync channel to pace the reader so do not use async channel
-    // use small buffer and let channels no rendezvous
-    let (tx1, rx1) = sync_channel(1);
-    let (tx2, rx2) = sync_channel(1);
-
-    // please receive!
-    let (in_status_tx, status_rx) = sync_channel(0);
-    let dsp_status_tx = in_status_tx.clone();
-    let out_status_tx = in_status_tx.clone();
-
-    // receivers do try_recv() so use try_send and let buffer>0
-    let (in_cmd_tx, in_cmd_rx) = sync_channel(1);
-    let (dsp_cmd_tx, dsp_cmd_rx) = sync_channel(1);
-    let (out_cmd_tx, out_cmd_rx) = sync_channel(1);
-
-    let frame = r.info().frame;
-    let rate = r.info().rate;
-
-    let _ = thread::spawn(move || {
-        r.run(tx1, in_status_tx, in_cmd_rx).unwrap();
-    });
-    let _ = thread::spawn(move || {
-        dsp.run(rx1, tx2, dsp_status_tx, dsp_cmd_rx).unwrap();
-    });
-    let _ = thread::spawn(move || {
-        w.run(rx2, out_status_tx, out_cmd_rx).unwrap();
-    });
-
-    // wait for TxInit/RxInit
-    status_rx.recv().unwrap();
-    status_rx.recv().unwrap();
-    status_rx.recv().unwrap();
-    status_rx.recv().unwrap();
-    // synchronize
-    out_cmd_tx.send(io::Cmd::Start).unwrap();
-    dsp_cmd_tx.send(io::Cmd::Start).unwrap();
-    in_cmd_tx.send(io::Cmd::Start).unwrap();
-    
-    let mut current_vf2 = read_vf2();
-
-    // CLI
-    // do increment in Latency as Latency is received once per frame
-    let mut count: u64 = 0;
-    // prepare avg latency
-    let mut latency_avg = 0.0f64;
-    let avg_sec = 2;
-    let n = rate as u64 / frame as u64 * avg_sec;
-    // prepare RMS and peak
-    let mut l_rms_in = 0.0;
-    let mut l_rms_out = 0.0;
-    let mut l_peak_in = 0.0;
-    let mut l_peak_out = 0.0;
-    let mut r_rms_in = 0.0;
-    let mut r_rms_out = 0.0;
-    let mut r_peak_in = 0.0;
-    let mut r_peak_out = 0.0;
-    let calc_gain = |v: f32| 20.0 * v.log10();
-    let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
-        let yellow = 3;
-        let mut s = String::from("");
-        for i in 0..((max + 2) / step) {
-            if i == (peak / step) && i > max / step - yellow {
-                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
-            } else if i == (peak / step) {
-                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
-            } else if i < (cur / step) && i > max / step - yellow {
-                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
-            } else if i < (cur / step) {
-                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
-            } else if i > max / step - yellow {
-                s += &format!("{}.{}", TERM_C_LYELLOW, TERM_C_END);
-            } else {
-                s += &format!("{}.{}", TERM_C_LGREEN, TERM_C_END);
-            }
-        }
-        s
-    };
-    let draw_volume = |ch: &str, rms: f32, peak: f32, max: isize, step: isize| {
-        let mut over1 = format!("{}.{}", TERM_C_LRED, TERM_C_END);
-        let mut over2 = String::from("    ");
-        let rms_db = calc_gain(rms);
-        let peak_db = calc_gain(peak);
-        // clipping occurs in i16
-        if peak_db > 1.0 / 32768.0 {
-            over1 = format!("{}|{}", TERM_C_LRED, TERM_C_END);
-            over2 = format!(" {}OVR{}", TERM_C_LRED, TERM_C_END);
-        }
-        // L |||||||||||||||||||||||........| +0.8 OVR
-        // R ||||||||||||||||||...........|.. -1.2
-        format!(
-            "{} {}{} {:+.1}{} \n", // one extra space to clear term
-            ch,
-            draw_bar(
-                max + rms_db.ceil() as isize,
-                max + peak_db.ceil() as isize,
-                max,
-                step
-            ),
-            over1,
-            peak_db,
-            over2,
-        )
-    };
-    let draw_time = |mut sec: usize| {
-        let h = sec / 3600;
-        sec %= 3600;
-        let m = sec / 60;
-        sec %= 60;
-        format!("{:02}:{:02}:{:02}", h, m, sec)
-    };
-
-    // press Enter to stop
-    let sig = Arc::new(AtomicBool::new(false));
-    let sig2 = sig.clone();
-    let _ = thread::spawn(move || {
-        // TODO: need press Enter once anyway
-        read_str("").unwrap(); // wait for input
-        sig2.store(true, Ordering::Relaxed);
-    });
-
-    for s in status_rx {
-        // stop?
-        if sig.load(Ordering::Relaxed) {
-            sig.store(false, Ordering::Relaxed);
-            if in_cmd_tx.try_send(io::Cmd::Stop).is_err()
-                || dsp_cmd_tx.try_send(io::Cmd::Stop).is_err()
-                || out_cmd_tx.try_send(io::Cmd::Stop).is_err()
-            {
-                log::error!("could not send stop");
-                return;
-            }
-        }
-        match s {
-            // check io::Status::*
-            Latency(l) => {
-                latency_avg -= latency_avg / n as f64;
-                latency_avg += l as f64 / n as f64;
-                count += 1;
-                // once every avg_sec
-                if count % n == 0 {
-                    log::debug!(
-                        "DSP latency ({}s avg): {:.3} ms | total frames: {}",
-                        avg_sec,
-                        latency_avg / 1000.0,
-                        count
-                    );
-                }
-                // once every one avg_sec
-                if count % (n / avg_sec) == 0 {
-                    let tmp = read_vf2();
-                    if &tmp != &current_vf2 {
-                        log::info!("reload filters");
-                        current_vf2 = tmp;
-                        if let Err(e) = dsp_cmd_tx.try_send(io::Cmd::Reload(current_vf2.clone())) {
-                            log::warn!("could not reload filters err={}", e)
-                        }
-                    }
-                }
-                // draw CLI
-                if no_level_meter {
-                    continue;
-                }
-                let fps = 30;
-                if count % ((rate / frame) as f32 / fps as f32) as u64 == 0 {
-                    let status = format!(
-                        "Time\t{}\nLatency\t{:.2} ms\n",
-                        draw_time(count as usize / (rate / frame)),
-                        latency_avg / 1000.0,
-                    );
-                    let l_in_bar = draw_volume("L", l_rms_in, l_peak_in, 60, 2);
-                    let r_in_bar = draw_volume("R", r_rms_in, r_peak_in, 60, 2);
-                    let l_out_bar = draw_volume("L", l_rms_out, l_peak_out, 60, 2);
-                    let r_out_bar = draw_volume("R", r_rms_out, r_peak_out, 60, 2);
-                    let note = "use Enter/Return to stop\n";
-                    print!(
-                        "{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
-                        TERM_LEFT_TOP, status, l_in_bar, r_in_bar, l_out_bar, r_out_bar, note
-                    )
-                }
-            }
-            RMS(pos, ch, v) => {
-                if pos == io::IO::Input {
-                    if ch == 0 {
-                        l_rms_in = v;
-                    } else {
-                        r_rms_in = v;
-                    }
-                } else {
-                    if ch == 0 {
-                        l_rms_out = v;
-                    } else {
-                        r_rms_out = v;
-                    }
-                }
-                log::trace!(
-                    "RMS\tL {:.3}=>{:.3} | R {:.3}=>{:.3}",
-                    calc_gain(l_rms_in),
-                    calc_gain(l_rms_out),
-                    calc_gain(r_rms_in),
-                    calc_gain(r_rms_out)
-                );
-            }
-            Peak(pos, ch, v) => {
-                if pos == io::IO::Input {
-                    if ch == 0 {
-                        l_peak_in = v;
-                    } else {
-                        r_peak_in = v;
-                    }
-                } else {
-                    if ch == 0 {
-                        l_peak_out = v;
-                    } else {
-                        r_peak_out = v;
-                    }
-                }
-                log::trace!(
-                    "Peak\tL {:.3}=>{:.3} | R {:.3}=>{:.3}",
-                    calc_gain(l_peak_in),
-                    calc_gain(l_peak_out),
-                    calc_gain(r_peak_in),
-                    calc_gain(r_peak_out)
-                );
-            }
-            Interpolated(_) => {
-                log::info!("{:?}", s);
-            }
-            TxInit(_) | RxInit(_) => {
-                log::info!("{:?}", s)
-            }
-            TxFin(_) | RxFin(_) => {
-                log::info!("{:?}", s)
-            }
-            TxErr(_) | RxErr(_) => {
-                log::warn!("{:?}", s)
-            }
-            _ => {
-                log::trace!("{:?}", s)
-            }
-        }
-    }
-}
-
-fn read_vf2() -> String {
-    std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""))
-}
-
-pub fn start(frame: usize, no_level_meter: bool) {
+fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
     let pa = pa::PortAudio::new();
     if pa.is_err() {
         log::error!("could not initialize portaudio: {:?}", pa.unwrap_err());
@@ -494,7 +191,8 @@ pub fn start(frame: usize, no_level_meter: bool) {
                         44100,
                         2,
                     );
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
+                    let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -504,9 +202,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
-                    play(r, w, dsp, no_level_meter);
-                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
+                    return kani::Kani::start(r, w, dsp);
                 } else if cmd == 8 {
                     if output_dev == CLI_DEV_INVALID {
                         log::error!("please select output device first");
@@ -514,7 +210,8 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     }
                     if let Ok(n) = read_str("file name> ") {
                         let r = io::WaveReader::new(frame, &n).unwrap();
-                        let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
+                        let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
+                        let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
                         let w = io::PAWriter::new(
                             output_dev,
                             r.info().frame,
@@ -524,9 +221,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                         let r = Box::new(r) as Box<dyn io::Input + Send>;
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
                         let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                        print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
-                        play(r, w, dsp, no_level_meter);
-                        print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
+                        return kani::Kani::start(r, w, dsp);
                     }
                 } else if cmd == 9 {
                     if input_dev == CLI_DEV_INVALID || output_dev == CLI_DEV_INVALID {
@@ -534,7 +229,8 @@ pub fn start(frame: usize, no_level_meter: bool) {
                         continue;
                     }
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &read_vf2());
+                    let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
+                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
                     let w = io::PAWriter::new(
                         output_dev,
                         r.info().frame,
@@ -544,9 +240,7 @@ pub fn start(frame: usize, no_level_meter: bool) {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
-                    play(r, w, dsp, no_level_meter);
-                    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
+                    return kani::Kani::start(r, w, dsp);
                 } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);
@@ -557,4 +251,180 @@ pub fn start(frame: usize, no_level_meter: bool) {
             }
         }
     }
+}
+
+pub fn draw_cli_loop(p: Arc<kani::Kani>, no_level_meter: bool) {
+    let calc_gain = |v: f32| 20.0 * v.log10();
+    let draw_bar = |cur: isize, peak: isize, max: isize, step: isize| {
+        let yellow = 3;
+        let mut s = String::from("");
+        for i in 0..((max + 2) / step) {
+            if i == (peak / step) && i > max / step - yellow {
+                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
+            } else if i == (peak / step) {
+                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
+            } else if i < (cur / step) && i > max / step - yellow {
+                s += &format!("{}|{}", TERM_C_LYELLOW, TERM_C_END);
+            } else if i < (cur / step) {
+                s += &format!("{}|{}", TERM_C_LGREEN, TERM_C_END);
+            } else if i > max / step - yellow {
+                s += &format!("{}.{}", TERM_C_LYELLOW, TERM_C_END);
+            } else {
+                s += &format!("{}.{}", TERM_C_LGREEN, TERM_C_END);
+            }
+        }
+        s
+    };
+    let draw_volume = |ch: &str, rms: f32, peak: f32, max: isize, step: isize| {
+        let mut over1 = format!("{}.{}", TERM_C_LRED, TERM_C_END);
+        let mut over2 = String::from("    ");
+        let rms_db = calc_gain(rms);
+        let peak_db = calc_gain(peak);
+        // clipping occurs in i16
+        if peak_db > 1.0 / 32768.0 {
+            over1 = format!("{}|{}", TERM_C_LRED, TERM_C_END);
+            over2 = format!(" {}OVR{}", TERM_C_LRED, TERM_C_END);
+        }
+        // L |||||||||||||||||||||||........| +0.8 OVR
+        // R ||||||||||||||||||...........|.. -1.2
+        format!(
+            "{} {}{} {:+.1}{} \n", // one extra space to clear term
+            ch,
+            draw_bar(
+                max + rms_db.ceil() as isize,
+                max + peak_db.ceil() as isize,
+                max,
+                step
+            ),
+            over1,
+            peak_db,
+            over2,
+        )
+    };
+    let draw_time = |mut sec: u32| {
+        let h = sec / 3600;
+        sec %= 3600;
+        let m = sec / 60;
+        sec %= 60;
+        format!("{:02}:{:02}:{:02}", h, m, sec)
+    };
+
+    // press Enter to stop
+    let sig = Arc::new(AtomicBool::new(false));
+    let sig2 = sig.clone();
+    let _ = thread::spawn(move || {
+        // TODO: need press Enter once anyway
+        read_str("").unwrap(); // wait for input
+        sig2.store(true, Ordering::Relaxed);
+    });
+
+    print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
+    let fps = 30;
+    let mut prev_vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
+    loop {
+        let t = time::Duration::from_millis(1000 / fps);
+        thread::sleep(t);
+
+        if sig.load(Ordering::Relaxed) {
+            p.stop().unwrap();
+            print!("{}{}", TERM_CLEAR, TERM_LEFT_TOP);
+            return;
+        }
+
+        if !no_level_meter {
+            let ps = p.status();
+            let pi = p.info();
+            let status = format!(
+                "Time\t{}\nLatency\t{:.2} ms\n",
+                draw_time(ps.frames as u32 / (pi.sampling_rate / pi.frame_size)),
+                ps.avg_latency_us as f32 / 1000.0,
+            );
+            let l_in_bar = draw_volume("L", ps.in_l_rms, ps.in_l_peak, 60, 2);
+            let r_in_bar = draw_volume("R", ps.in_r_rms, ps.in_r_peak, 60, 2);
+            let l_out_bar = draw_volume("L", ps.out_l_rms, ps.out_l_peak, 60, 2);
+            let r_out_bar = draw_volume("R", ps.out_r_rms, ps.out_r_peak, 60, 2);
+            let note = "use Enter/Return to stop\n";
+            print!(
+                "{}{}\nINPUT\n{}{}\nOUTPUT\n{}{}\n{}",
+                TERM_LEFT_TOP, status, l_in_bar, r_in_bar, l_out_bar, r_out_bar, note
+            );
+        }
+
+        // check filters.json
+        if let Ok(vf2) = std::fs::read_to_string(PATH_FILTERS) {
+            if vf2 == prev_vf2 {
+                continue;
+            }
+            if let Err(e) = p.set_filters(&vf2) {
+                log::warn!("could not parse filter as {}", e)
+            } else {
+                prev_vf2 = vf2;
+            }
+        }
+    }
+}
+
+fn print_devices(pa: &pa::PortAudio) -> Result<()> {
+    let device_names = io::get_device_names(pa)?;
+    device_names.iter().for_each(|(idx, name)| {
+        println!("{}\t{}", idx, name);
+    });
+    Ok(())
+}
+
+fn print_device_info(pa: &pa::PortAudio, idx: usize) -> Result<()> {
+    let devinfo = io::get_device_info(pa, idx)?;
+    println!("{:#?}", devinfo);
+    Ok(())
+}
+
+fn get_device_by_name(pa: &pa::PortAudio, n: &str) -> Result<usize> {
+    let mut dev = CLI_DEV_INVALID;
+    let device_names = io::get_device_names(pa)?;
+    device_names.iter().for_each(|(idx, name)| {
+        if name == n {
+            dev = *idx;
+        }
+    });
+    if dev == CLI_DEV_INVALID {
+        bail!("device \"{}\" not found", n);
+    } else {
+        Ok(dev)
+    }
+}
+
+fn get_default_devices(pa: &pa::PortAudio) -> (usize, usize) {
+    let (mut input_dev, mut output_dev) = (CLI_DEV_INVALID, CLI_DEV_INVALID);
+    if let Ok(dev) = get_device_by_name(pa, DEFAULT_INPUT_DEV) {
+        input_dev = dev;
+    } else {
+        log::error!("could not find device \"{}\"", DEFAULT_INPUT_DEV);
+    }
+    if let Ok(dev) = get_device_by_name(pa, DEFAULT_OUTPUT_DEV) {
+        output_dev = dev;
+    } else {
+        log::error!("could not find device \"{}\"", DEFAULT_OUTPUT_DEV);
+    }
+    (input_dev, output_dev)
+}
+
+fn read_str(s: &str) -> Result<String> {
+    print!("{}", s);
+    stdout().flush().with_context(|| "coult not flush stdout")?;
+    let mut input = String::new();
+    stdin()
+        .read_line(&mut input)
+        .with_context(|| "coult not read line")?;
+    log::trace!("read_str={}", input);
+    Ok(input.trim().to_string())
+}
+
+fn read_int(s: &str) -> Result<usize> {
+    let read = read_str(s)?.trim().parse();
+    if read.is_err() {
+        bail!("could not parse {} to int", s);
+    }
+    let read = read.unwrap();
+    log::trace!("read_int={:?}", read);
+    Ok(read)
 }

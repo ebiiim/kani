@@ -26,6 +26,3 @@ getopts = "0.2"
 
 [[bin]]
 name = "kani_cli"
-
-[[bin]]
-name = "kani_cli2"
