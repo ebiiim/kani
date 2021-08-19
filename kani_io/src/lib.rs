@@ -56,10 +56,11 @@ pub enum Status {
 pub enum Cmd {
     /// Processor reloads config when received this Cmd.
     Reload(String),
+    /// Input, Output and Processor wait this Cmd after sending TxInit/RxInit for synchronization.
+    Start,
     /// Input stops when received this Cmd,
     /// and then Processor & Output also stop as the tx channel close.
     Stop,
-    // TODO: Start, Pause?
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -159,6 +160,8 @@ impl Input for WaveReader {
         let spf = self.info.frame as usize * self.info.output_ch as usize;
         // no return error after TxInit/RxInit
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
+        // wait Cmd::Start for synchronization (currently no check)
+        cmd_rx.recv().unwrap();
         loop {
             // poll commands
             let cmd = cmd_rx.try_recv();
@@ -272,6 +275,8 @@ impl Input for PAReader {
         log::debug!("stream started info={:?}", stream.info());
 
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
+        // wait Cmd::Start for synchronization (currently no check)
+        cmd_rx.recv().unwrap();
 
         loop {
             // poll commands
@@ -375,6 +380,8 @@ impl Output for PAWriter {
         let num_samples = (frame * ch as u32) as usize;
 
         status_tx.send(Status::RxInit(IO::Output)).unwrap();
+        // wait Cmd::Start for synchronization (currently no check)
+        cmd_rx.recv().unwrap();
 
         for buf in rx {
             // poll commands
@@ -487,6 +494,8 @@ impl Input for PipeReader {
         );
 
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
+        // wait Cmd::Start for synchronization (currently no check)
+        cmd_rx.recv().unwrap();
 
         let buflen = self.info.frame * self.info.output_ch * 2;
         let mut buf = vec![0; buflen];
@@ -691,6 +700,8 @@ impl Processor for DSP {
 
         status_tx.send(Status::RxInit(IO::Processor)).unwrap();
         status_tx.send(Status::TxInit(IO::Processor)).unwrap();
+        // wait Cmd::Start for synchronization (currently no check)
+        cmd_rx.recv().unwrap();
 
         for buf in rx {
             // poll commands

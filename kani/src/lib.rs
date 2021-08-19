@@ -92,6 +92,16 @@ impl Kani {
         let p = Arc::new(p);
         let p2 = p.clone(); // return this
 
+        // wait for TxInit/RxInit
+        status_rx.recv().unwrap();
+        status_rx.recv().unwrap();
+        status_rx.recv().unwrap();
+        status_rx.recv().unwrap();
+        // synchronize
+        p.out_cmd_tx.send(io::Cmd::Start).unwrap();
+        p.dsp_cmd_tx.send(io::Cmd::Start).unwrap();
+        p.in_cmd_tx.send(io::Cmd::Start).unwrap();
+
         let _ = thread::spawn(move || {
             for s in status_rx {
                 match s {
@@ -169,6 +179,7 @@ impl Kani {
             }
         });
 
+        // thread::sleep(std::time::Duration::from_secs(1));
         p2
     }
     pub fn status(&self) -> CurrentStatus {

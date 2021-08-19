@@ -196,6 +196,16 @@ pub fn play(
         w.run(rx2, out_status_tx, out_cmd_rx).unwrap();
     });
 
+    // wait for TxInit/RxInit
+    status_rx.recv().unwrap();
+    status_rx.recv().unwrap();
+    status_rx.recv().unwrap();
+    status_rx.recv().unwrap();
+    // synchronize
+    out_cmd_tx.send(io::Cmd::Start).unwrap();
+    dsp_cmd_tx.send(io::Cmd::Start).unwrap();
+    in_cmd_tx.send(io::Cmd::Start).unwrap();
+    
     let mut current_vf2 = read_vf2();
 
     // CLI
