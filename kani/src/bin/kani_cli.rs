@@ -202,7 +202,7 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    return kani::Kani::start(r, w, dsp);
+                    return kani::Kani::start(r, w, dsp).unwrap();
                 } else if cmd == 8 {
                     if output_dev == CLI_DEV_INVALID {
                         log::error!("please select output device first");
@@ -221,7 +221,7 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                         let r = Box::new(r) as Box<dyn io::Input + Send>;
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
                         let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                        return kani::Kani::start(r, w, dsp);
+                        return kani::Kani::start(r, w, dsp).unwrap();
                     }
                 } else if cmd == 9 {
                     if input_dev == CLI_DEV_INVALID || output_dev == CLI_DEV_INVALID {
@@ -240,7 +240,7 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
                     let dsp = Box::new(dsp) as Box<dyn io::Processor + Send>;
-                    return kani::Kani::start(r, w, dsp);
+                    return kani::Kani::start(r, w, dsp).unwrap();
                 } else if cmd == 0 {
                     log::debug!("exit");
                     process::exit(0);

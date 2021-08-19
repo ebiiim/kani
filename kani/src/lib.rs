@@ -46,7 +46,7 @@ impl Kani {
         mut r: Box<dyn io::Input + Send>,
         mut w: Box<dyn io::Output + Send>,
         mut dsp: Box<dyn io::Processor + Send>,
-    ) -> Arc<Self> {
+    ) -> Result<Arc<Self>> {
         // use sync channel to pace the reader so do not use async channel
         // use small buffer and let channels no rendezvous
         let (in_tx, dsp_rx) = sync_channel(1);
@@ -179,8 +179,7 @@ impl Kani {
             }
         });
 
-        // thread::sleep(std::time::Duration::from_secs(1));
-        p2
+        Ok(p2)
     }
     pub fn status(&self) -> CurrentStatus {
         let s = self.status.lock().unwrap();
@@ -202,7 +201,7 @@ impl Kani {
             || self.dsp_cmd_tx.try_send(io::Cmd::Stop).is_err()
             || self.out_cmd_tx.try_send(io::Cmd::Stop).is_err()
         {
-            bail!("could not send stop")
+            log::info!("could not send stop (already stopped?)");
         }
         Ok(())
     }
