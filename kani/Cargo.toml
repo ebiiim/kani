@@ -23,6 +23,19 @@ env_logger = "0.9"
 hound = "3.4"
 anyhow = "1.0"
 getopts = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hyper = { version = "0.14", features = ["full"], optional=true }
+tokio = { version = "1", features = ["full"], optional=true }
+futures = { version = "0.3", optional=true }
 
 [[bin]]
 name = "kani_cli"
+
+[[bin]]
+name = "kani_api"
+required-features = ["api"]  
+
+[features]
+default = ["api"]
+api = ["hyper", "tokio"]

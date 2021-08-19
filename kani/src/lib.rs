@@ -1,18 +1,19 @@
 use anyhow::{bail, Context, Result};
 use io::Status::*;
 use kani_io as io;
+use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct PlayerInfo {
     pub frame_size: u32,
     pub sampling_rate: u32,
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct CurrentStatus {
     pub frames: u64,
     pub latency_us: u32,
@@ -33,6 +34,7 @@ pub struct CurrentStatus {
 pub struct Kani {
     info: Mutex<PlayerInfo>,
     status: Mutex<CurrentStatus>,
+    filters: Mutex<String>,
 
     in_cmd_tx: SyncSender<io::Cmd>,
     out_cmd_tx: SyncSender<io::Cmd>,
@@ -83,6 +85,7 @@ impl Kani {
             in_cmd_tx,
             dsp_cmd_tx,
             out_cmd_tx,
+            filters: Mutex::new(String::from("[]")),
             info: Mutex::new(info),
             status: Mutex::new(CurrentStatus {
                 ..Default::default()
@@ -160,6 +163,11 @@ impl Kani {
                             }
                         }
                     }
+                    Loaded(j) => {
+                        log::info!("Cmd::Loaded",);
+                        let mut pf = p.filters.lock().unwrap();
+                        *pf = j;
+                    }
                     Interpolated(_) => {
                         log::info!("{:?}", s);
                     }
@@ -188,6 +196,10 @@ impl Kani {
     pub fn info(&self) -> PlayerInfo {
         let i = self.info.lock().unwrap();
         i.clone()
+    }
+    pub fn filters(&self) -> String {
+        let f = self.filters.lock().unwrap();
+        f.clone()
     }
     pub fn set_filters(&self, vf2: &str) -> Result<()> {
         log::info!("reload filters");

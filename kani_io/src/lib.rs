@@ -50,6 +50,8 @@ pub enum Status {
     /// Processor sends this value and `IO` here means where the value is measured.
     /// Detection method depends on Processor implementation.
     Peak(IO, Ch, f32),
+    /// Processor sends this value when reloaded config.
+    Loaded(String),
 }
 
 #[derive(Debug)]
@@ -703,6 +705,11 @@ impl Processor for DSP {
         // wait Cmd::Start for synchronization (currently no check)
         cmd_rx.recv().unwrap();
 
+        // send initial filters
+        status_tx
+            .send(Status::Loaded(vec2ch_to_json(&self.vf2)))
+            .unwrap();
+
         for buf in rx {
             // poll commands
             let cmd = cmd_rx.try_recv();
@@ -711,6 +718,9 @@ impl Processor for DSP {
                     Cmd::Reload(s) => {
                         log::debug!("DSP received Cmd::Reload so reload config={}", s);
                         self.vf2 = parse_vec2ch(&s, self.info.rate as f32);
+                        status_tx
+                            .send(Status::Loaded(vec2ch_to_json(&self.vf2)))
+                            .unwrap();
                     }
                     // Upstream closes tx channel so this is not necessary
                     // Cmd::Stop => {
