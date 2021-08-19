@@ -6,7 +6,7 @@ edition = "2018"
 description = "Digital equalizer application"
 repository = "https://github.com/ebiiim/kani"
 license = "MIT"
-default-run = "kani"
+default-run = "kani_cli"
 
 [dependencies.kani_filter]
 path = "../kani_filter"
@@ -23,4 +23,6 @@ env_logger = "0.9"
 hound = "3.4"
 anyhow = "1.0"
 getopts = "0.2"
-signal-hook = "0.3.9"
+
+[[bin]]
+name = "kani_cli"
