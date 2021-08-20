@@ -97,14 +97,14 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release --all
 
       - name: build (cross)
         if: matrix.name == 'linux_armv7'
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }}
+          args: --release --all --target ${{ matrix.target }}
           use-cross: true
 
       # Bundle
@@ -135,8 +135,10 @@ jobs:
           DIST=${{ env.DIST }}
           mkdir -p ${DIST}
 
-          cp target/release/kani{,.exe} ${DIST} || true
-          cp target/${{ matrix.target }}/release/kani ${DIST} || true
+          cp target/release/kani_cli{,.exe} ${DIST} || true
+          cp target/${{ matrix.target }}/release/kani_cli ${DIST} || true
+          cp target/release/kani_api{,.exe} ${DIST} || true
+          cp target/${{ matrix.target }}/release/kani_api ${DIST} || true
 
           cp filters.json ${DIST}
           cp README.md ${DIST}
