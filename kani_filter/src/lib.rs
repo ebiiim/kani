@@ -110,43 +110,17 @@ impl Debug for dyn Filter + Send {
     }
 }
 
-impl Debug for dyn Filter2ch + Send {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "filter::Filter2ch(dyn) {}", self.to_json())
-    }
-}
-
-// Note: currently no way to get sampling rate from self
-// impl Clone for BoxedFilter {
-//     fn clone(&self) -> BoxedFilter {
-//         let j = self.to_json();
-//         let mut cloned = json_to_filter(&j);
-//         cloned.init();
-//         cloned
-//     }
-// }
-
 pub trait Filter2ch {
     fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
     fn to_json(&self) -> String;
     fn init(&mut self, fs: f32);
 }
 
-impl Debug for dyn Filter2ch {
+impl Debug for dyn Filter2ch + Send {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "filter::Filter2ch(dyn) {}", self.to_json())
     }
 }
-
-// Note: currently no way to get sampling rate from self
-// impl Clone for BoxedFilter2ch {
-//     fn clone(&self) -> BoxedFilter2ch {
-//         let j = self.to_json();
-//         let mut cloned = json_to_filter2ch(&j);
-//         cloned.init();
-//         cloned
-//     }
-// }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Delay {
@@ -309,15 +283,6 @@ impl Filter for ReverbBeta {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Volume {
-    _ft: FilterType,
-    curve: VolumeCurve,
-    val: f32,
-    #[serde(skip)]
-    ratio: f32,
-}
-
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum VolumeCurve {
     Linear,
@@ -328,6 +293,15 @@ impl Default for VolumeCurve {
     fn default() -> Self {
         VolumeCurve::Linear
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct Volume {
+    _ft: FilterType,
+    curve: VolumeCurve,
+    val: f32,
+    #[serde(skip)]
+    ratio: f32,
 }
 
 impl Volume {
@@ -1352,11 +1326,6 @@ pub fn json_to_vec2ch(s: &str, fs: f32) -> Result<VecFilters2ch> {
     Ok(vf)
 }
 
-pub fn dump_coeffs(v: &[BiquadFilter]) -> String {
-    v.iter()
-        .fold(String::new(), |s, x| format!("{}{}", s, x.dump_coeff()))
-}
-
 pub fn nextpow2(n: f32) -> usize {
     2.0f32.powf(n.log2().ceil()) as usize
 }
@@ -1367,7 +1336,7 @@ pub fn generate_impulse(n: usize) -> Vec<f32> {
     buf
 }
 
-pub fn generate_inverse(a: &[f32]) -> Vec<f32> {
+pub fn generate_inversed(a: &[f32]) -> Vec<f32> {
     a.iter().map(|x| *x * -1.0).collect()
 }
 
@@ -1601,9 +1570,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_inverse() {
+    fn test_generate_inversed() {
         let want = [-0.1, -0.2, -0.3, -0.4, -0.5, -0.6];
-        let got = generate_inverse(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+        let got = generate_inversed(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
         assert!(format!("{:?}", got) == format!("{:?}", want));
     }
 

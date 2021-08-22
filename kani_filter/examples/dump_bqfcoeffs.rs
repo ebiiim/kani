@@ -1,5 +1,9 @@
-use kani_filter as f;
 use kani_filter::*;
+
+fn dump_coeffs(v: &[BiquadFilter]) -> String {
+    v.iter()
+        .fold(String::new(), |s, x| format!("{}{}", s, x.dump_coeff()))
+}
 
 fn run_dump_bqfcoeffs() {
     let fs = 48000.0;
@@ -8,7 +12,7 @@ fn run_dump_bqfcoeffs() {
         BiquadFilter::new(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
         BiquadFilter::new(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
     ];
-    print!("{}", f::dump_coeffs(&v));
+    print!("{}", dump_coeffs(&v));
 }
 
 fn main() {
