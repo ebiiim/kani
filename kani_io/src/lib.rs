@@ -12,8 +12,6 @@ use std::time;
 extern crate kani_filter;
 
 type Frame = usize;
-type Rate = usize;
-type Bit = usize;
 type Ch = usize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -40,16 +38,16 @@ pub enum Status {
     Latency(u32),
     /// Output inserted a frame to mitigate underrun.
     Interpolated(IO),
-    /// RMS in FP32, you might want to calc gain.
+    /// RMS in magnitude (abs of signal value), you might want to calc gain.
     ///
     /// Processor sends this value and `IO` here means where the value is measured.
     /// Window size depends on Processor implementation.
-    RMS(IO, Ch, f32),
-    /// Peak in FP32, you might want to calc gain.
+    RMS(IO, Ch, S),
+    /// Peak in magnitude (abs of signal value), you might want to calc gain.
     ///
     /// Processor sends this value and `IO` here means where the value is measured.
     /// Detection method depends on Processor implementation.
-    Peak(IO, Ch, f32),
+    Peak(IO, Ch, S),
     /// Processor sends this value when reloaded config.
     Loaded(String),
 }
@@ -68,7 +66,7 @@ pub enum Cmd {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Info {
     pub frame: Frame,
-    pub rate: Rate,
+    pub rate: Hz,
     pub input_ch: Ch,
     pub output_ch: Ch,
 }
@@ -77,7 +75,7 @@ pub trait Input {
     fn info(&self) -> &Info;
     fn run(
         &mut self,
-        tx: SyncSender<Vec<f32>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()>;
@@ -87,7 +85,7 @@ pub trait Output {
     fn info(&self) -> &Info;
     fn run(
         &mut self,
-        rx: Receiver<Vec<f32>>,
+        rx: Receiver<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()>;
@@ -97,8 +95,8 @@ pub trait Processor {
     fn info(&self) -> &Info;
     fn run(
         &mut self,
-        rx: Receiver<Vec<f32>>,
-        tx: SyncSender<Vec<f32>>,
+        rx: Receiver<Vec<S>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()>;
@@ -135,7 +133,7 @@ impl WaveReader {
         Ok(WaveReader {
             info: Info {
                 frame,
-                rate: r.spec().sample_rate as Rate,
+                rate: r.spec().sample_rate as Hz,
                 input_ch: 0,
                 output_ch: r.spec().channels as Ch,
             },
@@ -154,7 +152,7 @@ impl Input for WaveReader {
     }
     fn run(
         &mut self,
-        tx: SyncSender<Vec<f32>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
@@ -215,7 +213,7 @@ impl Input for WaveReader {
 // impl WaveWriter {}
 
 // impl Output for WaveWriter {
-//     fn run(&self, rx: Receiver<Vec<f32>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
+//     fn run(&self, rx: Receiver<Vec<S>>, status_tx: SyncSender<Status>) -> Result<(), IOError> {
 //         unimplemented!();
 //     }
 // }
@@ -227,7 +225,7 @@ pub struct PAReader {
 }
 
 impl PAReader {
-    pub fn new(dev: usize, frame: Frame, rate: Rate, ch: Ch) -> Self {
+    pub fn new(dev: usize, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PAReader {
             info: Info {
                 frame,
@@ -249,7 +247,7 @@ impl Input for PAReader {
     }
     fn run(
         &mut self,
-        tx: SyncSender<Vec<f32>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
@@ -260,7 +258,7 @@ impl Input for PAReader {
         let player_info = get_device_info(&pa, self.dev)?;
         let rate = self.info.rate as f64;
         let latency = player_info.default_low_input_latency;
-        let stream_params = pa::StreamParameters::<f32>::new(
+        let stream_params = pa::StreamParameters::<S>::new(
             pa::DeviceIndex(self.dev as u32),
             ch,
             interleaved,
@@ -331,7 +329,7 @@ pub struct PAWriter {
 }
 
 impl PAWriter {
-    pub fn new(dev: usize, frame: Frame, rate: Rate, ch: Ch) -> Self {
+    pub fn new(dev: usize, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PAWriter {
             info: Info {
                 frame,
@@ -353,7 +351,7 @@ impl Output for PAWriter {
     }
     fn run(
         &mut self,
-        rx: Receiver<Vec<f32>>,
+        rx: Receiver<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
@@ -364,7 +362,7 @@ impl Output for PAWriter {
         let player_info = get_device_info(&pa, self.dev)?;
         let rate = self.info.rate as f64;
         let latency = player_info.default_low_output_latency;
-        let stream_params = pa::StreamParameters::<f32>::new(
+        let stream_params = pa::StreamParameters::<S>::new(
             pa::DeviceIndex(self.dev as u32),
             ch,
             interleaved,
@@ -449,7 +447,7 @@ pub struct PipeReader {
 }
 
 impl PipeReader {
-    pub fn new(cmd: &str, args: &str, frame: Frame, rate: Rate, ch: Ch) -> Self {
+    pub fn new(cmd: &str, args: &str, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PipeReader {
             info: Info {
                 frame,
@@ -472,7 +470,7 @@ impl Input for PipeReader {
     }
     fn run(
         &mut self,
-        tx: SyncSender<Vec<f32>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
@@ -594,17 +592,17 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo>
 }
 
 fn apply_filters(
-    l: &[f32],
-    r: &[f32],
+    l: &[S],
+    r: &[S],
     lfs: &mut VecFilters,
     rfs: &mut VecFilters,
-) -> (Vec<f32>, Vec<f32>) {
+) -> (Vec<S>, Vec<S>) {
     let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
     (l, r)
 }
 
-fn apply_filters2(l: &[f32], r: &[f32], sfs: &mut VecFilters2ch) -> (Vec<f32>, Vec<f32>) {
+fn apply_filters2(l: &[S], r: &[S], sfs: &mut VecFilters2ch) -> (Vec<S>, Vec<S>) {
     assert_eq!(l.len(), r.len());
     let debug = l.len();
 
@@ -638,8 +636,8 @@ pub struct DSP {
 }
 
 impl DSP {
-    pub fn new(frame: Frame, rate: Rate, vf2_json: &str) -> Self {
-        let vf2 = parse_vec2ch(vf2_json, rate as f32);
+    pub fn new(frame: Frame, rate: Hz, vf2_json: &str) -> Self {
+        let vf2 = parse_vec2ch(vf2_json, rate);
         let p = DSP {
             info: Info {
                 frame,
@@ -664,8 +662,8 @@ impl Processor for DSP {
     }
     fn run(
         &mut self,
-        rx: Receiver<Vec<f32>>,
-        tx: SyncSender<Vec<f32>>,
+        rx: Receiver<Vec<S>>,
+        tx: SyncSender<Vec<S>>,
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
@@ -717,7 +715,7 @@ impl Processor for DSP {
                 match cmd.unwrap() {
                     Cmd::Reload(s) => {
                         log::debug!("DSP received Cmd::Reload so reload config={}", s);
-                        self.vf2 = parse_vec2ch(&s, self.info.rate as f32);
+                        self.vf2 = parse_vec2ch(&s, self.info.rate);
                         status_tx
                             .send(Status::Loaded(vec2ch_to_json(&self.vf2)))
                             .unwrap();
@@ -769,11 +767,11 @@ struct LevelMeter1ch {
     io: IO,
     ch: Ch,
     /// current mean square (calc root before every send)
-    rms_cur: f32,
+    rms_cur: S,
     rms_cnt: u64,
     rms_window: Frame,
-    rms_buf: VecDeque<f32>,
-    peak_cur: f32,
+    rms_buf: VecDeque<S>,
+    peak_cur: S,
     peak_cnt: u64,
     peak_hold: Frame,
 }
@@ -799,7 +797,7 @@ impl LevelMeter1ch {
             peak_hold: peak_hold,
         }
     }
-    pub fn push_data(&mut self, s: &[f32]) {
+    pub fn push_data(&mut self, s: &[S]) {
         for i in 0..s.len() {
             let oldest_sample = self.rms_buf.pop_front().unwrap();
             let latest_sample = s[i];
@@ -828,7 +826,7 @@ impl LevelMeter1ch {
     }
 }
 
-fn parse_vec2ch(json: &str, fs: f32) -> VecFilters2ch {
+fn parse_vec2ch(json: &str, fs: Hz) -> VecFilters2ch {
     match json_to_vec2ch(json, fs) {
         Ok(vf2) => vf2,
         Err(_) => {
@@ -842,21 +840,21 @@ fn parse_vec2ch(json: &str, fs: f32) -> VecFilters2ch {
     }
 }
 
-fn setup_vf(fs: f32) -> (VecFilters, VecFilters) {
+fn setup_vf(fs: Hz) -> (VecFilters, VecFilters) {
     let lvf: VecFilters = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
-        // Delay::newb(200, fs as usize),
+        // Delay::newb(200, fs),
         NopFilter::newb(),
     ];
     let rvf: VecFilters = vec![
-        // BiquadFilter::newb(BQFType::HighPass, fs, 250.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::LowPass, fs, 8000.0, 0.0, BQFParam::Q(0.707)),
-        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880.0, 9.0, BQFParam::BW(1.0)),
+        // BiquadFilter::newb(BQFType::HighPass, fs, 250, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::LowPass, fs, 8000, 0.0, BQFParam::Q(0.707)),
+        // BiquadFilter::newb(BQFType::PeakingEQ, fs, 880, 9.0, BQFParam::BW(1.0)),
         // Volume::newb(VolumeCurve::Gain, -6.0),
-        // Delay::newb(200, fs as usize),
+        // Delay::newb(200, fs),
         NopFilter::newb(),
     ];
     log::info!("filters (L ch): {}", vec_to_json(&lvf));
@@ -864,19 +862,20 @@ fn setup_vf(fs: f32) -> (VecFilters, VecFilters) {
     (lvf, rvf)
 }
 
-fn setup_vf2(fs: f32) -> VecFilters2ch {
+fn setup_vf2(fs: Hz) -> VecFilters2ch {
     let pf1 = PairedFilter::newb(
         Volume::newb(VolumeCurve::Gain, -12.0),
         Volume::newb(VolumeCurve::Gain, -12.0),
         fs,
     );
     // let pf2 = PairedFilter::newb(ReverbBeta::newb(fs), ReverbBeta::newb(fs), fs);
-    let pf3 = CrossfeedBeta::newb(3600.0, fs);
+    let pf3 = CrossfeedBeta::newb(3600, fs);
     let vf2: VecFilters2ch = vec![
-        // VocalRemover::newb(VocalRemoverType::RemoveCenter),
-        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(fs, f32::MIN, f32::MAX)),
-        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240.0, 4400.0), fs),
-        pf3, pf1,
+        // VocalRemover::newb(VocalRemoverType::RemoveCenter, fs),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(usize::MIN, usize::MAX), fs),
+        // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240, 4400), fs),
+        pf3,
+        pf1,
     ];
     log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
     vf2

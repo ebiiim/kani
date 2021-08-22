@@ -2,8 +2,8 @@ use kani_filter as f;
 use kani_filter::*;
 
 fn run_dump_vocal_remover_ir() {
-    const FS: f32 = 48000.0;
-    let len = f::nextpow2(FS);
+    let fs = 48000;
+    let len = f::nextpow2(fs);
     let a = f::generate_impulse(len);
 
     // find values that can obtain flat frequency response
@@ -22,11 +22,11 @@ fn run_dump_vocal_remover_ir() {
     let f21 = f2 * r1;
     let f22 = f2 * r2;
 
-    let l = BiquadFilter::newb(BQFType::LowPass, FS, f11, 0.0, q).apply(&a);
-    let h = BiquadFilter::newb(BQFType::HighPass, FS, f22, 0.0, q).apply(&a);
+    let l = BiquadFilter::newb(BQFType::LowPass, fs, f11 as f::Hz, 0.0, q).apply(&a);
+    let h = BiquadFilter::newb(BQFType::HighPass, fs, f22 as f::Hz, 0.0, q).apply(&a);
 
-    let x = BiquadFilter::newb(BQFType::HighPass, FS, f12, 0.0, q).apply(&a);
-    let x = BiquadFilter::newb(BQFType::LowPass, FS, f21, 0.0, q).apply(&x);
+    let x = BiquadFilter::newb(BQFType::HighPass, fs, f12 as f::Hz, 0.0, q).apply(&a);
+    let x = BiquadFilter::newb(BQFType::LowPass, fs, f21 as f::Hz, 0.0, q).apply(&x);
 
     let mut out = Vec::with_capacity(len);
     for i in 0..len {

@@ -3,27 +3,31 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
+/// Sample
+pub type S = f32;
+pub type Hz = usize;
+
 /// [-32768, 32767] -> [-1.0, 1.0]
-pub fn i16_to_f32(a: &[i16]) -> Vec<f32> {
+pub fn i16_to_f32(a: &[i16]) -> Vec<S> {
     a.iter()
         .map(|x| {
             if *x < 0 {
-                *x as f32 / 0x8000 as f32
+                *x as S / 0x8000 as S
             } else {
-                *x as f32 / 0x7fff as f32
+                *x as S / 0x7fff as S
             }
         })
         .collect()
 }
 
 /// [-1.0, 1.0] -> [-32768, 32767]
-pub fn f32_to_i16(a: &[f32]) -> Vec<i16> {
+pub fn f32_to_i16(a: &[S]) -> Vec<i16> {
     a.iter()
         .map(|x| {
             if *x < 0.0 {
-                (x * 0x8000 as f32) as i16
+                (x * 0x8000 as S) as i16
             } else {
-                (x * 0x7fff as f32) as i16
+                (x * 0x7fff as S) as i16
             }
         })
         .collect()
@@ -34,10 +38,10 @@ pub fn f32_to_i16(a: &[f32]) -> Vec<i16> {
 /// # Panics
 ///
 /// Panics if `a.len()` is odd.
-pub fn from_interleaved(a: &[f32]) -> (Vec<f32>, Vec<f32>) {
+pub fn from_interleaved(a: &[S]) -> (Vec<S>, Vec<S>) {
     assert!(a.len() % 2 == 0, "a.len() is odd");
-    let mut l: Vec<f32> = Vec::with_capacity(a.len() / 2);
-    let mut r: Vec<f32> = Vec::with_capacity(a.len() / 2);
+    let mut l: Vec<S> = Vec::with_capacity(a.len() / 2);
+    let mut r: Vec<S> = Vec::with_capacity(a.len() / 2);
     for (i, s) in a.iter().enumerate() {
         if i % 2 == 0 {
             l.push(*s);
@@ -53,7 +57,7 @@ pub fn from_interleaved(a: &[f32]) -> (Vec<f32>, Vec<f32>) {
 /// # Panics
 ///
 /// Panics if `l.len()` != `r.len()`.
-pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
+pub fn to_interleaved(l: &[S], r: &[S]) -> Vec<S> {
     assert_eq!(
         l.len(),
         r.len(),
@@ -61,7 +65,7 @@ pub fn to_interleaved(l: &[f32], r: &[f32]) -> Vec<f32> {
         l.len(),
         r.len()
     );
-    let mut a: Vec<f32> = Vec::with_capacity(l.len() * 2);
+    let mut a: Vec<S> = Vec::with_capacity(l.len() * 2);
     for (lv, rv) in l.iter().zip(r) {
         a.push(*lv);
         a.push(*rv);
@@ -99,9 +103,9 @@ impl Default for FilterType {
 }
 
 pub trait Filter {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32>;
+    fn apply(&mut self, xs: &[S]) -> Vec<S>;
     fn to_json(&self) -> String;
-    fn init(&mut self, fs: f32);
+    fn init(&mut self, fs: Hz);
 }
 
 impl Debug for dyn Filter + Send {
@@ -111,9 +115,9 @@ impl Debug for dyn Filter + Send {
 }
 
 pub trait Filter2ch {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>);
+    fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>);
     fn to_json(&self) -> String;
-    fn init(&mut self, fs: f32);
+    fn init(&mut self, fs: Hz);
 }
 
 impl Debug for dyn Filter2ch + Send {
@@ -126,13 +130,13 @@ impl Debug for dyn Filter2ch + Send {
 pub struct Delay {
     _ft: FilterType,
     #[serde(skip)]
-    sample_rate: f32,
+    sample_rate: Hz,
     time_ms: usize,
     #[serde(skip)]
     tapnum: usize,
     #[serde(skip)]
     #[serde(default = "VecDeque::new")]
-    buf: VecDeque<f32>,
+    buf: VecDeque<S>,
 }
 
 impl Delay {
@@ -143,7 +147,7 @@ impl Delay {
     ///
     /// Panics if (time_ms*sample_rate/1000) > (2^28) as it needs more than 1GiB mem.
     /// FYI: this means >699000ms delay at 384kHz :D
-    pub fn new(time_ms: usize, sample_rate: f32) -> Self {
+    pub fn new(time_ms: usize, sample_rate: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTDelay,
             time_ms,
@@ -152,9 +156,9 @@ impl Delay {
         f.init(sample_rate);
         f
     }
-    pub fn init(&mut self, fs: f32) {
+    pub fn init(&mut self, fs: Hz) {
         self.sample_rate = fs;
-        self.tapnum = (self.time_ms as i64 * self.sample_rate as i64 / 1000) as usize;
+        self.tapnum = self.time_ms * self.sample_rate / 1000;
         assert!(self.tapnum <= Self::MAX_TAPNUM, "too long duration");
         log::trace!("delay tapnum={}", self.tapnum);
         self.buf = VecDeque::from(vec![0.0; self.tapnum]);
@@ -165,10 +169,10 @@ impl Delay {
             self.tapnum
         );
     }
-    pub fn newb(time_ms: usize, sample_rate: f32) -> BoxedFilter {
+    pub fn newb(time_ms: usize, sample_rate: Hz) -> BoxedFilter {
         Box::new(Self::new(time_ms, sample_rate))
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
         if self.tapnum == 0 {
             return xs.to_vec(); // do nothing
         }
@@ -188,13 +192,13 @@ impl Delay {
 }
 
 impl Filter for Delay {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -203,7 +207,7 @@ impl Filter for Delay {
 pub struct ReverbBeta {
     _ft: FilterType,
     #[serde(skip)]
-    sample_rate: f32,
+    sample_rate: Hz,
     #[serde(skip)]
     d1: Delay,
     #[serde(skip)]
@@ -219,7 +223,7 @@ pub struct ReverbBeta {
 }
 
 impl ReverbBeta {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(sample_rate: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTReverbBeta,
             // time_ms,
@@ -228,7 +232,7 @@ impl ReverbBeta {
         f.init(sample_rate);
         f
     }
-    pub fn init(&mut self, fs: f32) {
+    pub fn init(&mut self, fs: Hz) {
         log::debug!("filter::ReverbBeta");
         self.sample_rate = fs;
         let primes = [113, 229, 349, 463, 601, 733, 863, 1013];
@@ -239,10 +243,10 @@ impl ReverbBeta {
         self.d5 = Delay::new(primes[4], self.sample_rate);
         self.d6 = Delay::new(primes[5], self.sample_rate);
     }
-    pub fn newb(sample_rate: f32) -> BoxedFilter {
+    pub fn newb(sample_rate: Hz) -> BoxedFilter {
         Box::new(Self::new(sample_rate))
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
         let y1 = self.d1.apply(xs);
         let y2 = self.d2.apply(xs);
         let y3 = self.d3.apply(xs);
@@ -272,13 +276,13 @@ impl ReverbBeta {
 }
 
 impl Filter for ReverbBeta {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -330,8 +334,8 @@ impl Volume {
     pub fn newb(curve: VolumeCurve, val: f32) -> BoxedFilter {
         Box::new(Self::new(curve, val))
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
-        xs.iter().map(|x| x * self.ratio as f32).collect()
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
+        xs.iter().map(|x| x * self.ratio).collect()
     }
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap()
@@ -342,13 +346,13 @@ impl Volume {
 }
 
 impl Filter for Volume {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, _: f32) {
+    fn init(&mut self, _: Hz) {
         self.init();
     }
 }
@@ -404,7 +408,9 @@ pub struct BQFCoeff {
 }
 
 impl BQFCoeff {
-    pub fn new(filter_type: &BQFType, rate: f32, f0: f32, gain: f32, param: &BQFParam) -> BQFCoeff {
+    pub fn new(filter_type: &BQFType, rate: Hz, f0: Hz, gain: f32, param: &BQFParam) -> BQFCoeff {
+        let rate = rate as f32;
+        let f0 = f0 as f32;
         let a = 10.0f32.powf(gain / 40.0);
         let w0 = 2.0 * std::f32::consts::PI * f0 / rate;
         let w0_cos = w0.cos();
@@ -516,19 +522,19 @@ pub struct BiquadFilter {
     filter_type: BQFType,
     /// sampling rate
     #[serde(skip)]
-    rate: f32,
+    rate: Hz,
     /// cutoff/center freq
-    f0: f32,
+    f0: Hz,
     /// gain in dB (PeakingEQ | LowShelf | HighShelf)
     gain: f32,
     /// Q/Bandwidth/Slope value
     param: BQFParam,
     /// input delay buffer
     #[serde(skip)]
-    buf_x: [f32; 2],
+    buf_x: [S; 2],
     /// output delay buffer
     #[serde(skip)]
-    buf_y: [f32; 2],
+    buf_y: [S; 2],
     /// coefficients
     #[serde(skip)]
     coeff: BQFCoeff,
@@ -536,7 +542,7 @@ pub struct BiquadFilter {
 
 impl BiquadFilter {
     /// Biquad Filter implementation based on [RBJ Cookbook](https://webaudio.github.io/Audio-EQ-Cookbook/Audio-EQ-Cookbook.txt)
-    pub fn new(filter_type: BQFType, rate: f32, f0: f32, gain: f32, param: BQFParam) -> Self {
+    pub fn new(filter_type: BQFType, rate: Hz, f0: Hz, gain: f32, param: BQFParam) -> Self {
         let mut f = Self {
             _ft: FilterType::FTBiquad,
             filter_type,
@@ -548,16 +554,17 @@ impl BiquadFilter {
         f.init(rate);
         f
     }
-    pub fn init(&mut self, rate: f32) {
+    pub fn init(&mut self, rate: Hz) {
         self.rate = rate;
 
         // validation
-        if self.f0 >= self.rate / 2.0 {
-            self.f0 = (self.rate / 2.0) - 2.0;
+        if self.f0 >= self.rate / 2 {
+            self.f0 = (self.rate / 2) - 2;
         }
-        if self.f0 <= 0.0 {
-            self.f0 = 2.0;
+        if self.f0 <= 0 {
+            self.f0 = 2;
         }
+
         self.coeff = BQFCoeff::new(
             &self.filter_type,
             self.rate,
@@ -567,17 +574,11 @@ impl BiquadFilter {
         );
         log::debug!("filter::BiquadFilter {:?}", self);
     }
-    pub fn newb(
-        filter_type: BQFType,
-        rate: f32,
-        f0: f32,
-        gain: f32,
-        param: BQFParam,
-    ) -> BoxedFilter {
+    pub fn newb(filter_type: BQFType, rate: Hz, f0: Hz, gain: f32, param: BQFParam) -> BoxedFilter {
         Box::new(Self::new(filter_type, rate, f0, gain, param))
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
-        let mut buf: Vec<f32> = Vec::with_capacity(xs.len());
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
+        let mut buf: Vec<S> = Vec::with_capacity(xs.len());
         for x in xs.iter() {
             let y = self.coeff.b0_div_a0 * x
                 + self.coeff.b1_div_a0 * self.buf_x[0]
@@ -605,13 +606,13 @@ impl BiquadFilter {
 }
 
 impl Filter for BiquadFilter {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -620,13 +621,13 @@ impl Filter for BiquadFilter {
 pub struct Convolver {
     _ft: FilterType,
     /// impulse response
-    ir: Vec<f32>,
+    ir: Vec<S>,
     /// inverse(ir)
     #[serde(skip)]
-    iir: Vec<f32>,
+    iir: Vec<S>,
     /// ring buffer
     #[serde(skip)]
-    buf: VecDeque<f32>,
+    buf: VecDeque<S>,
 }
 
 impl Convolver {
@@ -634,7 +635,7 @@ impl Convolver {
     /// Tested in Core i7-4790:
     ///   n=3072 2ch convolver uses 35% CPU in release build (n>=4096 causes underrun)
     ///   n=96 2ch convolver uses 60% CPU in debug build (n>=128 causes underrun)
-    pub fn new(ir: &[f32]) -> Self {
+    pub fn new(ir: &[S]) -> Self {
         let mut f = Self {
             _ft: FilterType::FTConvolver,
             ir: ir.to_vec(),
@@ -649,14 +650,14 @@ impl Convolver {
         self.iir.reverse();
         self.buf = VecDeque::from(vec![0.0; self.ir.len()]);
     }
-    pub fn newb(ir: &[f32]) -> BoxedFilter {
+    pub fn newb(ir: &[S]) -> BoxedFilter {
         Box::new(Self::new(ir))
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
         if self.iir.is_empty() {
             return xs.to_vec(); // do nothing
         }
-        let mut vy: Vec<f32> = Vec::with_capacity(xs.len());
+        let mut vy: Vec<S> = Vec::with_capacity(xs.len());
         // convolve([1, 3, 7], [1, -10, 100]) -> [1, -7, 77]
         // initial      [0 0 0]1 3 7
         // [1]       <-  0[0 0 1]3 7
@@ -665,7 +666,7 @@ impl Convolver {
         for input_x in xs.iter() {
             self.buf.pop_front().unwrap();
             self.buf.push_back(*input_x);
-            let mut y = 0.0f32;
+            let mut y = 0.0 as S;
             for (x, k) in self.buf.iter().zip(&self.iir) {
                 y += x * k;
             }
@@ -682,13 +683,13 @@ impl Convolver {
 }
 
 impl Filter for Convolver {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, _: f32) {
+    fn init(&mut self, _: Hz) {
         self.init();
     }
 }
@@ -697,8 +698,8 @@ impl Filter for Convolver {
 pub enum VocalRemoverType {
     RemoveCenter,
     /// (Remove start, Remove end)
-    /// e.g., RemoveCenterBW(220.0, 4400.0)
-    RemoveCenterBW(f32, f32),
+    /// e.g., RemoveCenterBW(220, 4400)
+    RemoveCenterBW(Hz, Hz),
 }
 
 impl Default for VocalRemoverType {
@@ -712,7 +713,7 @@ pub struct VocalRemover {
     _ft: FilterType,
     vrtype: VocalRemoverType,
     #[serde(skip)]
-    fs: f32,
+    fs: Hz,
     #[serde(skip)]
     lv: Volume,
     #[serde(skip)]
@@ -746,7 +747,7 @@ impl VocalRemover {
     const RH: f32 = 1.0 / Self::RL;
     const P: BQFParam = BQFParam::Q(1.414);
 
-    pub fn new(vrtype: VocalRemoverType, fs: f32) -> Self {
+    pub fn new(vrtype: VocalRemoverType, fs: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTVocalRemover,
             vrtype,
@@ -755,39 +756,83 @@ impl VocalRemover {
         f.init(fs);
         f
     }
-    pub fn init(&mut self, fs: f32) {
+    pub fn init(&mut self, fs: Hz) {
         self.fs = fs;
 
         log::debug!("filter::VocalRemover type={:?}", self.vrtype);
         match self.vrtype {
             VocalRemoverType::RemoveCenterBW(fl, fh) => {
+                let fl = fl as f32;
+                let fh = fh as f32;
                 self.lv = Volume::new(VolumeCurve::Gain, Self::VOL);
                 self.rv = Volume::new(VolumeCurve::Gain, Self::VOL);
-                self.ll = BiquadFilter::new(BQFType::LowPass, self.fs, fl * Self::RL, 0.0, Self::P);
-                self.llx =
-                    BiquadFilter::new(BQFType::HighPass, self.fs, fl * Self::RH, 0.0, Self::P);
-                self.lh =
-                    BiquadFilter::new(BQFType::HighPass, self.fs, fh * Self::RH, 0.0, Self::P);
-                self.lhx =
-                    BiquadFilter::new(BQFType::LowPass, self.fs, fh * Self::RL, 0.0, Self::P);
-                self.rl = BiquadFilter::new(BQFType::LowPass, self.fs, fl * Self::RL, 0.0, Self::P);
-                self.rlx =
-                    BiquadFilter::new(BQFType::HighPass, self.fs, fl * Self::RH, 0.0, Self::P);
-                self.rh =
-                    BiquadFilter::new(BQFType::HighPass, self.fs, fh * Self::RH, 0.0, Self::P);
-                self.rhx =
-                    BiquadFilter::new(BQFType::LowPass, self.fs, fh * Self::RL, 0.0, Self::P);
+                self.ll = BiquadFilter::new(
+                    BQFType::LowPass,
+                    self.fs,
+                    (fl * Self::RL) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.llx = BiquadFilter::new(
+                    BQFType::HighPass,
+                    self.fs,
+                    (fl * Self::RH) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.lh = BiquadFilter::new(
+                    BQFType::HighPass,
+                    self.fs,
+                    (fh * Self::RH) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.lhx = BiquadFilter::new(
+                    BQFType::LowPass,
+                    self.fs,
+                    (fh * Self::RL) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.rl = BiquadFilter::new(
+                    BQFType::LowPass,
+                    self.fs,
+                    (fl * Self::RL) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.rlx = BiquadFilter::new(
+                    BQFType::HighPass,
+                    self.fs,
+                    (fl * Self::RH) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.rh = BiquadFilter::new(
+                    BQFType::HighPass,
+                    self.fs,
+                    (fh * Self::RH) as Hz,
+                    0.0,
+                    Self::P,
+                );
+                self.rhx = BiquadFilter::new(
+                    BQFType::LowPass,
+                    self.fs,
+                    (fh * Self::RL) as Hz,
+                    0.0,
+                    Self::P,
+                );
             }
             _ => {}
         }
     }
-    pub fn newb(vrtype: VocalRemoverType, fs: f32) -> BoxedFilter2ch {
+    pub fn newb(vrtype: VocalRemoverType, fs: Hz) -> BoxedFilter2ch {
         Box::new(Self::new(vrtype, fs))
     }
-    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    pub fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         match self.vrtype {
             VocalRemoverType::RemoveCenter => {
-                let lr: Vec<f32> = l.iter().zip(r).map(|(l, r)| l - r).collect();
+                let lr: Vec<S> = l.iter().zip(r).map(|(l, r)| l - r).collect();
                 (lr.clone(), lr)
             }
             VocalRemoverType::RemoveCenterBW(_, _) => {
@@ -801,7 +846,7 @@ impl VocalRemover {
                 let rh = self.rh.apply(&r); // high (R ch)
                 let lm = self.lhx.apply(&self.llx.apply(&l)); // mid (L ch)
                 let rm = self.rhx.apply(&self.rlx.apply(&r)); // mid (R ch)
-                let center: Vec<f32> = lm.iter().zip(&rm).map(|(l, r)| l - r).collect(); // mid (L-R)
+                let center: Vec<S> = lm.iter().zip(&rm).map(|(l, r)| l - r).collect(); // mid (L-R)
 
                 let len = l.len();
                 let mut lo = Vec::with_capacity(len); // output (L ch)
@@ -829,13 +874,13 @@ impl VocalRemover {
 }
 
 impl Filter2ch for VocalRemover {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         self.apply(l, r)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -843,9 +888,9 @@ impl Filter2ch for VocalRemover {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct CrossfeedBeta {
     _ft: FilterType,
-    basefq: f32,
+    basefq: Hz,
     #[serde(skip)]
-    fs: f32,
+    fs: Hz,
     #[serde(skip)]
     ld1: Delay,
     #[serde(skip)]
@@ -897,7 +942,7 @@ pub struct CrossfeedBeta {
 }
 
 impl CrossfeedBeta {
-    pub fn new(basefq: f32, fs: f32) -> Self {
+    pub fn new(basefq: Hz, fs: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTCrossfeedBeta,
             basefq,
@@ -906,7 +951,7 @@ impl CrossfeedBeta {
         f.init(fs);
         f
     }
-    pub fn init(&mut self, fs: f32) {
+    pub fn init(&mut self, fs: Hz) {
         log::debug!("filter::CrossfeedBeta");
         self.fs = fs;
         let primes = [113, 229, 349, 463, 601, 733, 863, 1013];
@@ -924,7 +969,7 @@ impl CrossfeedBeta {
         self.rd6 = Delay::new(primes[5], self.fs);
         // attenuation
         // y=0 => 100%, y=1 => 90%, y=2 => 80%, ...
-        let a = |x: f32, y: isize| x - (x * 0.1 * y as f32);
+        let a = |x: Hz, y: isize| (x as f32 * ((10 - y) as f32 / 10.0)) as usize;
         let b = self.basefq;
         self.ll1 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 0), 0.0, BQFParam::Q(0.707));
         self.ll2 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 1), 0.0, BQFParam::Q(0.707));
@@ -939,10 +984,10 @@ impl CrossfeedBeta {
         self.rl5 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 4), 0.0, BQFParam::Q(0.707));
         self.rl6 = BiquadFilter::new(BQFType::LowPass, self.fs, a(b, 5), 0.0, BQFParam::Q(0.707));
     }
-    pub fn newb(basefq: f32, fs: f32) -> BoxedFilter2ch {
+    pub fn newb(basefq: Hz, fs: Hz) -> BoxedFilter2ch {
         Box::new(Self::new(basefq, fs))
     }
-    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    pub fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         let l1 = self.ld1.apply(&self.ll1.apply(l));
         let l2 = self.ld2.apply(&self.ll2.apply(l));
         let l3 = self.ld3.apply(&self.ll3.apply(l));
@@ -1001,13 +1046,13 @@ impl CrossfeedBeta {
 }
 
 impl Filter2ch for CrossfeedBeta {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         self.apply(l, r)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -1041,10 +1086,10 @@ impl Normalizer2ch {
     pub fn newb() -> BoxedFilter2ch {
         Box::new(Self::new())
     }
-    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    pub fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         // check max
-        let lmax = l.iter().fold(0.0f32, |cur_max, &x| cur_max.max(x.abs()));
-        let rmax = r.iter().fold(0.0f32, |cur_max, &x| cur_max.max(x.abs()));
+        let lmax = l.iter().fold(0. as S, |cur_max, &x| cur_max.max(x.abs()));
+        let rmax = r.iter().fold(0. as S, |cur_max, &x| cur_max.max(x.abs()));
         let lrmax = lmax.max(rmax);
         if self.cur_max < lrmax {
             self.cur_max = lrmax;
@@ -1066,13 +1111,13 @@ impl Normalizer2ch {
 }
 
 impl Filter2ch for Normalizer2ch {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         self.apply(l, r)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, _fs: f32) {
+    fn init(&mut self, _fs: Hz) {
         self.init();
     }
 }
@@ -1096,7 +1141,7 @@ impl NopFilter {
     pub fn newb() -> BoxedFilter {
         Box::new(Self::new())
     }
-    pub fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    pub fn apply(&mut self, xs: &[S]) -> Vec<S> {
         xs.to_vec()
     }
     pub fn to_json(&self) -> String {
@@ -1108,13 +1153,13 @@ impl NopFilter {
 }
 
 impl Filter for NopFilter {
-    fn apply(&mut self, xs: &[f32]) -> Vec<f32> {
+    fn apply(&mut self, xs: &[S]) -> Vec<S> {
         self.apply(xs)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, _: f32) {
+    fn init(&mut self, _: Hz) {
         self.init();
     }
 }
@@ -1127,7 +1172,7 @@ pub struct PairedFilter {
 }
 
 impl PairedFilter {
-    pub fn new(l: BoxedFilter, r: BoxedFilter, fs: f32) -> Self {
+    pub fn new(l: BoxedFilter, r: BoxedFilter, fs: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTPaired,
             l,
@@ -1136,15 +1181,15 @@ impl PairedFilter {
         f.init(fs);
         f
     }
-    pub fn init(&mut self, fs: f32) {
+    pub fn init(&mut self, fs: Hz) {
         log::debug!("filter::PairedFilter l={:?} r={:?}", self.l, self.r);
         self.l.init(fs);
         self.r.init(fs);
     }
-    pub fn newb(l: BoxedFilter, r: BoxedFilter, fs: f32) -> BoxedFilter2ch {
+    pub fn newb(l: BoxedFilter, r: BoxedFilter, fs: Hz) -> BoxedFilter2ch {
         Box::new(Self::new(l, r, fs))
     }
-    pub fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    pub fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         (self.l.apply(l), self.r.apply(r))
     }
     pub fn to_json(&self) -> String {
@@ -1157,13 +1202,13 @@ impl PairedFilter {
 }
 
 impl Filter2ch for PairedFilter {
-    fn apply(&mut self, l: &[f32], r: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    fn apply(&mut self, l: &[S], r: &[S]) -> (Vec<S>, Vec<S>) {
         self.apply(l, r)
     }
     fn to_json(&self) -> String {
         self.to_json()
     }
-    fn init(&mut self, fs: f32) {
+    fn init(&mut self, fs: Hz) {
         self.init(fs);
     }
 }
@@ -1202,7 +1247,7 @@ struct _PairedFilterDeserializationStruct {
     r: serde_json::Value,
 }
 
-pub fn json_to_filter(s: &str, fs: f32) -> Result<BoxedFilter> {
+pub fn json_to_filter(s: &str, fs: Hz) -> Result<BoxedFilter> {
     let x: _FilterDeserializationStruct =
         serde_json::from_str(s).with_context(|| format!("could not deserialize Filter {}", s))?;
     match x._ft {
@@ -1260,7 +1305,7 @@ pub fn json_to_filter(s: &str, fs: f32) -> Result<BoxedFilter> {
     }
 }
 
-pub fn json_to_filter2ch(s: &str, fs: f32) -> Result<BoxedFilter2ch> {
+pub fn json_to_filter2ch(s: &str, fs: Hz) -> Result<BoxedFilter2ch> {
     let x: _FilterDeserializationStruct = serde_json::from_str(s)
         .with_context(|| format!("could not deserialize Filter2ch {}", s))?;
     match x._ft {
@@ -1306,7 +1351,7 @@ pub fn json_to_filter2ch(s: &str, fs: f32) -> Result<BoxedFilter2ch> {
     }
 }
 
-pub fn json_to_vec(s: &str, fs: f32) -> Result<VecFilters> {
+pub fn json_to_vec(s: &str, fs: Hz) -> Result<VecFilters> {
     let mut vf = VecFilters::new();
     let v: Vec<serde_json::Value> =
         serde_json::from_str(s).with_context(|| "could not deserialize VecFilters")?;
@@ -1316,7 +1361,7 @@ pub fn json_to_vec(s: &str, fs: f32) -> Result<VecFilters> {
     Ok(vf)
 }
 
-pub fn json_to_vec2ch(s: &str, fs: f32) -> Result<VecFilters2ch> {
+pub fn json_to_vec2ch(s: &str, fs: Hz) -> Result<VecFilters2ch> {
     let mut vf = VecFilters2ch::new();
     let v: Vec<serde_json::Value> = serde_json::from_str(s)
         .with_context(|| format!("could not deserialize VecFilters2ch {}", s))?;
@@ -1326,18 +1371,18 @@ pub fn json_to_vec2ch(s: &str, fs: f32) -> Result<VecFilters2ch> {
     Ok(vf)
 }
 
-pub fn nextpow2(n: f32) -> usize {
-    2.0f32.powf(n.log2().ceil()) as usize
+pub fn nextpow2(n: Hz) -> Hz {
+    2.0f32.powi((n as f32).log2().ceil() as i32) as Hz
 }
 
-pub fn generate_impulse(n: usize) -> Vec<f32> {
-    let mut buf: Vec<f32> = vec![0.0; n];
-    buf[0] = 1.0;
+pub fn generate_impulse(n: usize) -> Vec<S> {
+    let mut buf: Vec<S> = vec![0.; n];
+    buf[0] = 1.;
     buf
 }
 
-pub fn generate_inversed(a: &[f32]) -> Vec<f32> {
-    a.iter().map(|x| *x * -1.0).collect()
+pub fn generate_inversed(a: &[S]) -> Vec<S> {
+    a.iter().map(|x| *x * -1.).collect()
 }
 
 pub fn dump_ir(v: &mut Vec<BoxedFilter>, n: usize) -> String {
@@ -1347,10 +1392,10 @@ pub fn dump_ir(v: &mut Vec<BoxedFilter>, n: usize) -> String {
         .fold(String::new(), |s, &x| s + &x.to_string() + "\n")
 }
 
-pub fn load_ir(s: &str, max_n: usize) -> Vec<f32> {
+pub fn load_ir(s: &str, max_n: usize) -> Vec<S> {
     let mut v = Vec::new();
     for (idx, l) in s.lines().enumerate() {
-        match l.parse::<f32>() {
+        match l.parse::<S>() {
             Ok(a) => {
                 if v.len() < max_n {
                     v.push(a);
@@ -1467,7 +1512,7 @@ mod tests {
             0.15, 0.16, 0.17, 0.18, 0.19, 0.20, 0.21, 0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28,
             0.29, 0.30,
         ];
-        let got = Delay::new(6, 1000.0).apply(&t);
+        let got = Delay::new(6, 1000).apply(&t);
         assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
@@ -1476,14 +1521,14 @@ mod tests {
     fn test_delay_zero() {
         let want = [0.01, 0.02, 0.03, 0.04];
         let t = [0.01, 0.02, 0.03, 0.04];
-        let got = Delay::new(0, 1000.0).apply(&t);
+        let got = Delay::new(0, 1000).apply(&t);
         assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
 
     #[test]
     #[should_panic]
     fn test_delay_too_long() {
-        Delay::new(Delay::MAX_TAPNUM + 1, 1000.0).apply(&[0.01, 0.02, 0.03, 0.04]);
+        Delay::new(Delay::MAX_TAPNUM + 1, 1000).apply(&[0.01, 0.02, 0.03, 0.04]);
     }
 
     #[test]
@@ -1493,7 +1538,7 @@ mod tests {
         // `cargo test -- --ignored` to run
         let tapsize = 1 << 30 >> 2;
         let x = vec![0.123; tapsize];
-        let _y = Delay::new(Delay::MAX_TAPNUM, 1000.0).apply(&x);
+        let _y = Delay::new(Delay::MAX_TAPNUM, 1000).apply(&x);
 
         use std::{thread, time};
         let t = time::Duration::from_millis(5000);
@@ -1514,7 +1559,7 @@ mod tests {
     fn test_volume_gain() {
         let t = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
         let g_n6 = 0.5011872f32;
-        let want: Vec<f32> = t.iter().map(|x| x * g_n6).collect();
+        let want: Vec<S> = t.iter().map(|x| x * g_n6).collect();
         let got = Volume::new(VolumeCurve::Gain, -6.0).apply(&t);
         assert!(got.iter().zip(&want).all(|(a, b)| a == b));
     }
@@ -1529,7 +1574,7 @@ mod tests {
         let mut f = Convolver::new(&ir);
         let got1 = f.apply(&t1);
         let got2 = f.apply(&t2);
-        let em = 0.00000001; // enough precision?
+        let em = 1. / 32768.; // enought precision in signed 16 bit
         assert!(got1.iter().zip(&want1).all(|(a, b)| (a - b).abs() < em));
         assert!(got2.iter().zip(&want2).all(|(a, b)| (a - b).abs() < em));
     }
@@ -1550,7 +1595,7 @@ mod tests {
         let t2 = [0.11, 0.04, 0.17];
         let want1 = [-0.10, -0.02, -0.10];
         let want2 = [-0.10, -0.02, -0.10];
-        let mut f = VocalRemover::new(VocalRemoverType::RemoveCenter, 48000.0);
+        let mut f = VocalRemover::new(VocalRemoverType::RemoveCenter, 48000);
         let (got1, got2) = f.apply(&t1, &t2);
         assert!(got1.iter().zip(&want1).all(|(a, b)| a == b));
         assert!(got2.iter().zip(&want2).all(|(a, b)| a == b));
@@ -1558,8 +1603,9 @@ mod tests {
 
     #[test]
     fn test_nextpow2() {
-        assert!(nextpow2(1023.1f32) == 1024);
-        assert!(nextpow2(1024.1f32) == 2048);
+        assert_eq!(nextpow2(1023), 1024);
+        assert_eq!(nextpow2(1024), 1024);
+        assert_eq!(nextpow2(1025), 2048);
     }
 
     #[test]
@@ -1601,7 +1647,7 @@ mod tests {
 
     #[test]
     fn test_delay_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = Delay::new(200, fs);
         let want = r#"{"_ft":"FTDelay","time_ms":200}"#;
         let got = t.to_json();
@@ -1613,7 +1659,7 @@ mod tests {
 
     #[test]
     fn test_volume_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = Volume::new(VolumeCurve::Gain, -6.0);
         let want = r#"{"_ft":"FTVolume","curve":"Gain","val":-6.0}"#;
         let got = t.to_json();
@@ -1625,9 +1671,9 @@ mod tests {
 
     #[test]
     fn test_biquadfilter_to_json() {
-        let fs = 48000.0;
-        let t = BiquadFilter::new(BQFType::PeakingEQ, fs, 1234.0, -3.5, BQFParam::Q(0.707));
-        let want = r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","f0":1234.0,"gain":-3.5,"param":{"Q":0.707}}"#;
+        let fs = 48000;
+        let t = BiquadFilter::new(BQFType::PeakingEQ, fs, 1234, -3.5, BQFParam::Q(0.707));
+        let want = r#"{"_ft":"FTBiquad","filter_type":"PeakingEQ","f0":1234,"gain":-3.5,"param":{"Q":0.707}}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1637,7 +1683,7 @@ mod tests {
 
     #[test]
     fn test_convolver_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = Convolver::new(&[0.01, 0.02, 0.03, 0.04]);
         let want = r#"{"_ft":"FTConvolver","ir":[0.01,0.02,0.03,0.04]}"#;
         let got = t.to_json();
@@ -1649,7 +1695,7 @@ mod tests {
 
     #[test]
     fn test_nop_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = NopFilter::new();
         let want = r#"{"_ft":"FTNop"}"#;
         let got = t.to_json();
@@ -1661,9 +1707,9 @@ mod tests {
 
     #[test]
     fn test_vocalremover_to_json() {
-        let fs = 48000.0;
-        let t = VocalRemover::new(VocalRemoverType::RemoveCenterBW(200.0, 4000.0), fs);
-        let want = r#"{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[200.0,4000.0]}}"#;
+        let fs = 48000;
+        let t = VocalRemover::new(VocalRemoverType::RemoveCenterBW(200, 4000), fs);
+        let want = r#"{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[200,4000]}}"#;
         let got = t.to_json();
         assert_eq!(want, got);
         // deserialize
@@ -1673,7 +1719,7 @@ mod tests {
 
     #[test]
     fn test_pairedfilter_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = PairedFilter::new(
             Convolver::newb(&[0.01, 0.02, 0.03, 0.04]),
             NopFilter::newb(),
@@ -1689,7 +1735,7 @@ mod tests {
 
     #[test]
     fn test_vec_to_json() {
-        let fs = 48000.0;
+        let fs = 48000;
         let t = r#"[{"_ft":"FTVolume","curve":"Gain","val":-6.0},{"_ft":"FTDelay","time_ms":200}]"#;
         let got = vec_to_json(&json_to_vec(t, fs).unwrap());
         assert_eq!(t, got);
@@ -1697,8 +1743,8 @@ mod tests {
 
     #[test]
     fn test_vec2ch_to_json() {
-        let fs = 48000.0;
-        let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[240.0,6600.0]}}]"#;
+        let fs = 48000;
+        let t = r#"[{"_ft":"FTPaired","l":{"_ft":"FTVolume","curve":"Gain","val":-6.0},"r":{"_ft":"FTVolume","curve":"Gain","val":-6.0}},{"_ft":"FTVocalRemover","vrtype":{"RemoveCenterBW":[240,6600]}}]"#;
         let got = vec2ch_to_json(&json_to_vec2ch(t, fs).unwrap());
         assert_eq!(t, got);
     }
