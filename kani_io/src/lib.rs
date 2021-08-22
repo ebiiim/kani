@@ -74,7 +74,7 @@ pub struct Info {
 }
 
 pub trait Input {
-    fn info(&self) -> Info;
+    fn info(&self) -> &Info;
     fn run(
         &mut self,
         tx: SyncSender<Vec<f32>>,
@@ -84,7 +84,7 @@ pub trait Input {
 }
 
 pub trait Output {
-    fn info(&self) -> Info;
+    fn info(&self) -> &Info;
     fn run(
         &mut self,
         rx: Receiver<Vec<f32>>,
@@ -94,7 +94,7 @@ pub trait Output {
 }
 
 pub trait Processor {
-    fn info(&self) -> Info;
+    fn info(&self) -> &Info;
     fn run(
         &mut self,
         rx: Receiver<Vec<f32>>,
@@ -149,8 +149,8 @@ impl WaveReader {
 }
 
 impl Input for WaveReader {
-    fn info(&self) -> Info {
-        self.info
+    fn info(&self) -> &Info {
+        &self.info
     }
     fn run(
         &mut self,
@@ -244,8 +244,8 @@ impl PAReader {
 }
 
 impl Input for PAReader {
-    fn info(&self) -> Info {
-        self.info
+    fn info(&self) -> &Info {
+        &self.info
     }
     fn run(
         &mut self,
@@ -348,8 +348,8 @@ impl PAWriter {
 }
 
 impl Output for PAWriter {
-    fn info(&self) -> Info {
-        self.info
+    fn info(&self) -> &Info {
+        &self.info
     }
     fn run(
         &mut self,
@@ -467,8 +467,8 @@ impl PipeReader {
 }
 
 impl Input for PipeReader {
-    fn info(&self) -> Info {
-        self.info
+    fn info(&self) -> &Info {
+        &self.info
     }
     fn run(
         &mut self,
@@ -659,8 +659,8 @@ impl DSP {
 }
 
 impl Processor for DSP {
-    fn info(&self) -> Info {
-        self.info
+    fn info(&self) -> &Info {
+        &self.info
     }
     fn run(
         &mut self,
