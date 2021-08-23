@@ -49,6 +49,12 @@ impl Kani {
         mut w: Box<dyn io::Output + Send>,
         mut dsp: Box<dyn io::Processor + Send>,
     ) -> Result<Arc<Self>> {
+        log::warn!(
+            "Kani::start with r={:?} dsp={:?} w={:?}",
+            r.info(),
+            dsp.info(),
+            w.info()
+        );
         // use sync channel to pace the reader so do not use async channel
         // use small buffer and let channels no rendezvous
         let (in_tx, dsp_rx) = sync_channel(1);
@@ -65,8 +71,8 @@ impl Kani {
         let (out_cmd_tx, out_cmd_rx) = sync_channel(1);
 
         let info = PlayerInfo {
-            frame_size: w.info().frame as u32,
-            sampling_rate: w.info().rate as u32,
+            frame_size: w.info().input_frame as u32,
+            sampling_rate: w.info().input_rate as u32,
         };
         // frames per sec.
         let n = info.sampling_rate as u32 / info.frame_size as u32 * Self::AVG_SEC;

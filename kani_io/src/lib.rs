@@ -63,11 +63,14 @@ pub enum Cmd {
     Stop,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Info {
-    pub frame: Frame,
-    pub rate: Hz,
+    pub input_frame: Frame,
+    pub input_rate: Hz,
     pub input_ch: Ch,
+
+    pub output_frame: Frame,
+    pub output_rate: Hz,
     pub output_ch: Ch,
 }
 
@@ -132,9 +135,12 @@ impl WaveReader {
         }
         Ok(WaveReader {
             info: Info {
-                frame,
-                rate: r.spec().sample_rate as Hz,
+                input_frame: 0,
+                input_rate: 0,
                 input_ch: 0,
+
+                output_frame: frame,
+                output_rate: r.spec().sample_rate as Hz,
                 output_ch: r.spec().channels as Ch,
             },
             reader: r,
@@ -157,7 +163,7 @@ impl Input for WaveReader {
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
         // samples per frame
-        let spf = self.info.frame as usize * self.info.output_ch as usize;
+        let spf = self.info.output_frame as usize * self.info.output_ch as usize;
         // no return error after TxInit/RxInit
         status_tx.send(Status::TxInit(IO::Input)).unwrap();
         // wait Cmd::Start for synchronization (currently no check)
@@ -228,9 +234,12 @@ impl PAReader {
     pub fn new(dev: usize, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PAReader {
             info: Info {
-                frame,
-                rate,
+                input_frame: 0,
+                input_rate: 0,
                 input_ch: 0,
+
+                output_frame: frame,
+                output_rate: rate,
                 output_ch: ch,
             },
             dev,
@@ -254,9 +263,9 @@ impl Input for PAReader {
         let pa = pa::PortAudio::new().with_context(|| "could not initialize portaudio")?;
         let ch = self.info.output_ch as i32;
         let interleaved = true;
-        let frame = self.info.frame as u32;
+        let frame = self.info.output_frame as u32;
         let player_info = get_device_info(&pa, self.dev)?;
-        let rate = self.info.rate as f64;
+        let rate = self.info.output_rate as f64;
         let latency = player_info.default_low_input_latency;
         let stream_params = pa::StreamParameters::<S>::new(
             pa::DeviceIndex(self.dev as u32),
@@ -332,9 +341,12 @@ impl PAWriter {
     pub fn new(dev: usize, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PAWriter {
             info: Info {
-                frame,
-                rate,
+                input_frame: frame,
+                input_rate: rate,
                 input_ch: ch,
+
+                output_frame: 0,
+                output_rate: 0,
                 output_ch: 0,
             },
             dev,
@@ -358,9 +370,9 @@ impl Output for PAWriter {
         let pa = pa::PortAudio::new().with_context(|| "could not initialize portaudio")?;
         let ch = self.info.input_ch as i32;
         let interleaved = true;
-        let frame = self.info.frame as u32;
+        let frame = self.info.input_frame as u32;
         let player_info = get_device_info(&pa, self.dev)?;
-        let rate = self.info.rate as f64;
+        let rate = self.info.input_rate as f64;
         let latency = player_info.default_low_output_latency;
         let stream_params = pa::StreamParameters::<S>::new(
             pa::DeviceIndex(self.dev as u32),
@@ -450,9 +462,12 @@ impl PipeReader {
     pub fn new(cmd: &str, args: &str, frame: Frame, rate: Hz, ch: Ch) -> Self {
         PipeReader {
             info: Info {
-                frame,
-                rate,
+                input_frame: 0,
+                input_rate: 0,
                 input_ch: 0,
+
+                output_frame: frame,
+                output_rate: rate,
                 output_ch: ch,
             },
             cmd: String::from(cmd),
@@ -497,7 +512,7 @@ impl Input for PipeReader {
         // wait Cmd::Start for synchronization (currently no check)
         cmd_rx.recv().unwrap();
 
-        let buflen = self.info.frame * self.info.output_ch * 2;
+        let buflen = self.info.output_frame * self.info.output_ch * 2;
         let mut buf = vec![0; buflen];
         let mut o = process.stdout.take().unwrap();
         loop {
@@ -640,9 +655,12 @@ impl DSP {
         let vf2 = parse_vec2ch(vf2_json, rate);
         let p = DSP {
             info: Info {
-                frame,
-                rate,
+                input_frame: frame,
+                input_rate: rate,
                 input_ch: 2,
+
+                output_frame: frame,
+                output_rate: rate,
                 output_ch: 2,
             },
             vf2,
@@ -667,35 +685,38 @@ impl Processor for DSP {
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
+        // no resampling so input and output are same
+        // always use output_rate & output_frame for convenience
+
         // RMS window = 100 ms
         // peak hold timer = 2000 ms
         let mut l_in_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Input,
             0,
-            (self.info.rate as f32 * 0.1) as usize,
-            self.info.rate * 2,
+            (self.info.output_rate as f32 * 0.1) as usize,
+            self.info.output_rate * 2,
         );
         let mut r_in_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Input,
             1,
-            (self.info.rate as f32 * 0.1) as usize,
-            self.info.rate * 2,
+            (self.info.output_rate as f32 * 0.1) as usize,
+            self.info.output_rate * 2,
         );
         let mut l_out_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Output,
             0,
-            (self.info.rate as f32 * 0.1) as usize,
-            self.info.rate * 2,
+            (self.info.output_rate as f32 * 0.1) as usize,
+            self.info.output_rate * 2,
         );
         let mut r_out_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Output,
             1,
-            (self.info.rate as f32 * 0.1) as usize,
-            self.info.rate * 2,
+            (self.info.output_rate as f32 * 0.1) as usize,
+            self.info.output_rate * 2,
         );
 
         status_tx.send(Status::RxInit(IO::Processor)).unwrap();
@@ -715,7 +736,7 @@ impl Processor for DSP {
                 match cmd.unwrap() {
                     Cmd::Reload(s) => {
                         log::debug!("DSP received Cmd::Reload so reload config={}", s);
-                        self.vf2 = parse_vec2ch(&s, self.info.rate);
+                        self.vf2 = parse_vec2ch(&s, self.info.output_rate);
                         status_tx
                             .send(Status::Loaded(vec2ch_to_json(&self.vf2)))
                             .unwrap();

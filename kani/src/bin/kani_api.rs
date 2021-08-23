@@ -238,12 +238,12 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                         2,
                     );
                     let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
+                    let dsp = io::DSP::new(r.info().output_frame, r.info().output_rate, &vf2);
                     let w = io::PAWriter::new(
                         output_dev,
-                        r.info().frame,
-                        r.info().rate,
-                        r.info().output_ch,
+                        dsp.info().output_frame,
+                        dsp.info().output_rate,
+                        dsp.info().output_ch,
                     );
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
@@ -257,12 +257,12 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                     if let Ok(n) = read_str("file name> ") {
                         let r = io::WaveReader::new(frame, &n).unwrap();
                         let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
-                        let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
+                        let dsp = io::DSP::new(r.info().output_frame, r.info().output_rate, &vf2);
                         let w = io::PAWriter::new(
                             output_dev,
-                            r.info().frame,
-                            r.info().rate,
-                            r.info().output_ch,
+                            dsp.info().output_frame,
+                            dsp.info().output_rate,
+                            dsp.info().output_ch,
                         );
                         let r = Box::new(r) as Box<dyn io::Input + Send>;
                         let w = Box::new(w) as Box<dyn io::Output + Send>;
@@ -276,12 +276,12 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                     }
                     let r = io::PAReader::new(input_dev, frame, 48000, 2);
                     let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
-                    let dsp = io::DSP::new(r.info().frame, r.info().rate, &vf2);
+                    let dsp = io::DSP::new(r.info().output_frame, r.info().output_rate, &vf2);
                     let w = io::PAWriter::new(
                         output_dev,
-                        r.info().frame,
-                        r.info().rate,
-                        r.info().output_ch,
+                        dsp.info().output_frame,
+                        dsp.info().output_rate,
+                        dsp.info().output_ch,
                     );
                     let r = Box::new(r) as Box<dyn io::Input + Send>;
                     let w = Box::new(w) as Box<dyn io::Output + Send>;
