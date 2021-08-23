@@ -512,7 +512,8 @@ impl Input for PipeReader {
         // wait Cmd::Start for synchronization (currently no check)
         cmd_rx.recv().unwrap();
 
-        let buflen = self.info.output_frame * self.info.output_ch * 2;
+        let sample_size = std::mem::size_of::<i16>(); // 2
+        let buflen = self.info.output_frame * self.info.output_ch * sample_size;
         let mut buf = vec![0; buflen];
         let mut o = process.stdout.take().unwrap();
         loop {
@@ -544,7 +545,7 @@ impl Input for PipeReader {
 
                         // // ignore weird size inputs
                         // // ch x 2byte
-                        // if n % self.info.output_ch * 2 != 0 {
+                        // if n % self.info.output_ch * sample_size != 0 {
                         //     log::warn!("ignored {} bytes of data from pipe", n);
                         //     continue;
                         // }
@@ -606,12 +607,7 @@ pub fn get_device_info(pa: &pa::PortAudio, idx: usize) -> Result<pa::DeviceInfo>
     bail!("device {} not found", idx);
 }
 
-fn apply_filters(
-    l: &[S],
-    r: &[S],
-    lfs: &mut VecFilters,
-    rfs: &mut VecFilters,
-) -> (Vec<S>, Vec<S>) {
+fn apply_filters(l: &[S], r: &[S], lfs: &mut VecFilters, rfs: &mut VecFilters) -> (Vec<S>, Vec<S>) {
     let l = lfs.iter_mut().fold(l.to_vec(), |x, f| f.apply(&x));
     let r = rfs.iter_mut().fold(r.to_vec(), |x, f| f.apply(&x));
     (l, r)
@@ -895,8 +891,7 @@ fn setup_vf2(fs: Hz) -> VecFilters2ch {
         // VocalRemover::newb(VocalRemoverType::RemoveCenter, fs),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(usize::MIN, usize::MAX), fs),
         // VocalRemover::newb(VocalRemoverType::RemoveCenterBW(240, 4400), fs),
-        pf3,
-        pf1,
+        pf3, pf1,
     ];
     log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
     vf2

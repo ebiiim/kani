@@ -140,13 +140,7 @@ pub struct Delay {
 }
 
 impl Delay {
-    const MAX_TAPNUM: usize = 1 << 30 >> 2; // 1GiB f32 array
     /// Initializes Delay with given duration in millisecond and sampling rate.
-    ///
-    /// # Panics
-    ///
-    /// Panics if (time_ms*sample_rate/1000) > (2^28) as it needs more than 1GiB mem.
-    /// FYI: this means >699000ms delay at 384kHz :D
     pub fn new(time_ms: usize, sample_rate: Hz) -> Self {
         let mut f = Self {
             _ft: FilterType::FTDelay,
@@ -159,7 +153,6 @@ impl Delay {
     pub fn init(&mut self, fs: Hz) {
         self.sample_rate = fs;
         self.tapnum = self.time_ms * self.sample_rate / 1000;
-        assert!(self.tapnum <= Self::MAX_TAPNUM, "too long duration");
         log::trace!("delay tapnum={}", self.tapnum);
         self.buf = VecDeque::from(vec![0.0; self.tapnum]);
         log::debug!(
@@ -1526,23 +1519,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_delay_too_long() {
-        Delay::new(Delay::MAX_TAPNUM + 1, 1000).apply(&[0.01, 0.02, 0.03, 0.04]);
-    }
-
-    #[test]
     #[ignore]
     fn check_delay_mem() {
-        // this test needs more than 4GiB RAM (1GiB for x, Delay.buf, y, respectively, and 1GiB for somewhere else ?_?)
+        // tests super long delay
+
+        // this test needs more than 4GiB RAM (1GiB for x, 2 GiB for Delay.buf (as VecDeque allocates nextpow(n)-1) and 1GiB for y)
         // `cargo test -- --ignored` to run
-        let tapsize = 1 << 30 >> 2;
-        let x = vec![0.123; tapsize];
-        let _y = Delay::new(Delay::MAX_TAPNUM, 1000).apply(&x);
+        let one_gib_f32 = 1 << 30 >> 2;
+        let x = vec![0.123; one_gib_f32];
+        let y = Delay::new(one_gib_f32, 1000).apply(&x);
 
         use std::{thread, time};
         let t = time::Duration::from_millis(5000);
         thread::sleep(t);
+        assert_ne!(x[0], y[0]);
     }
 
     #[test]
