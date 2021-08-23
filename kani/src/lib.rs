@@ -49,7 +49,7 @@ impl Kani {
         mut w: Box<dyn io::Output + Send>,
         mut dsp: Box<dyn io::Processor + Send>,
     ) -> Result<Arc<Self>> {
-        log::warn!(
+        log::debug!(
             "Kani::start with r={:?} dsp={:?} w={:?}",
             r.info(),
             dsp.info(),

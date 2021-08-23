@@ -193,6 +193,14 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                     );
                     let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
                     let dsp = io::DSP::new(r.info().output_frame, r.info().output_rate, &vf2);
+                    // upsampling test
+                    // let up = 96000;
+                    // let dsp = io::DSP::with_resampling(
+                    //     r.info().output_frame,
+                    //     r.info().output_rate,
+                    //     up,
+                    //     &vf2,
+                    // );
                     let w = io::PAWriter::new(
                         output_dev,
                         dsp.info().output_frame,
@@ -212,6 +220,14 @@ fn start_player_or_exit(frame: usize) -> Arc<kani::Kani> {
                         let r = io::WaveReader::new(frame, &n).unwrap();
                         let vf2 = std::fs::read_to_string(PATH_FILTERS).unwrap_or(String::from(""));
                         let dsp = io::DSP::new(r.info().output_frame, r.info().output_rate, &vf2);
+                        // upsampling test
+                        // let up = 88200;
+                        // let dsp = io::DSP::with_resampling(
+                        //     r.info().output_frame,
+                        //     r.info().output_rate,
+                        //     up,
+                        //     &vf2,
+                        // );
                         let w = io::PAWriter::new(
                             output_dev,
                             dsp.info().output_frame,

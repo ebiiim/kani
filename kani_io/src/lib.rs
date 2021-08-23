@@ -641,6 +641,8 @@ fn apply_filters2(l: &[S], r: &[S], sfs: &mut VecFilters2ch) -> (Vec<S>, Vec<S>)
 #[derive(Debug, Default)]
 pub struct DSP {
     info: Info,
+    lr: Resampler,
+    rr: Resampler,
     lvf: VecFilters,
     rvf: VecFilters,
     vf2: VecFilters2ch,
@@ -648,17 +650,24 @@ pub struct DSP {
 
 impl DSP {
     pub fn new(frame: Frame, rate: Hz, vf2_json: &str) -> Self {
-        let vf2 = parse_vec2ch(vf2_json, rate);
+        DSP::with_resampling(frame, rate, rate, vf2_json)
+    }
+    pub fn with_resampling(frame: Frame, from_rate: Hz, to_rate: Hz, vf2_json: &str) -> Self {
+        let vf2 = parse_vec2ch(vf2_json, to_rate);
+        let (lr, output_frame) = Resampler::new(frame, from_rate, to_rate);
+        let (rr, _) = Resampler::new(frame, from_rate, to_rate);
         let p = DSP {
             info: Info {
                 input_frame: frame,
-                input_rate: rate,
+                input_rate: from_rate,
                 input_ch: 2,
 
-                output_frame: frame,
-                output_rate: rate,
+                output_frame,
+                output_rate: to_rate,
                 output_ch: 2,
             },
+            lr,
+            rr,
             vf2,
             ..Default::default()
         };
@@ -681,24 +690,21 @@ impl Processor for DSP {
         status_tx: SyncSender<Status>,
         cmd_rx: Receiver<Cmd>,
     ) -> Result<()> {
-        // no resampling so input and output are same
-        // always use output_rate & output_frame for convenience
-
         // RMS window = 100 ms
         // peak hold timer = 2000 ms
         let mut l_in_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Input,
             0,
-            (self.info.output_rate as f32 * 0.1) as usize,
-            self.info.output_rate * 2,
+            (self.info.input_rate as f32 * 0.1) as usize,
+            self.info.input_rate * 2,
         );
         let mut r_in_level = LevelMeter1ch::new(
             status_tx.clone(),
             IO::Input,
             1,
-            (self.info.output_rate as f32 * 0.1) as usize,
-            self.info.output_rate * 2,
+            (self.info.input_rate as f32 * 0.1) as usize,
+            self.info.input_rate * 2,
         );
         let mut l_out_level = LevelMeter1ch::new(
             status_tx.clone(),
@@ -754,6 +760,8 @@ impl Processor for DSP {
             let (l, r) = from_interleaved(&buf);
             l_in_level.push_data(&l);
             r_in_level.push_data(&r);
+            let l = self.lr.apply(&l);
+            let r = self.rr.apply(&r);
             let (l, r) = apply_filters(&l, &r, &mut self.lvf, &mut self.rvf);
             let (l, r) = apply_filters2(&l, &r, &mut self.vf2);
             l_out_level.push_data(&l);
@@ -895,4 +903,99 @@ fn setup_vf2(fs: Hz) -> VecFilters2ch {
     ];
     log::info!("filters (L&R ch): {}", vec2ch_to_json(&vf2));
     vf2
+}
+
+fn gcd(a: Hz, b: Hz) -> Hz {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+#[derive(Debug, Default)]
+struct Resampler {
+    from_frame: Frame,
+    to_frame: Frame,
+    from_rate: Hz,
+    to_rate: Hz,
+    up: usize,
+    down: usize,
+    lpf: BiquadFilter,
+}
+
+impl Resampler {
+    pub fn new(frame: Frame, from: Hz, to: Hz) -> (Self, Frame) {
+        // e.g., frame=1470, from=44100, to=48000
+        //   GCD(44100, 48000) -> 300
+        //   Upsampling 160X
+        //   Downsampling 147X
+        //   LPF f0 = 22050Hz
+        //   Output frame = 1470/147*160 = 1600
+        let up = to / gcd(from, to);
+        let down = from / gcd(from, to);
+        let lpf_hz = std::cmp::min(from, to) / 2;
+        let to_frame = (frame as f32 / down as f32 * up as f32).round() as Frame;
+        let lpf = BiquadFilter::new(BQFType::LowPass, from * up, lpf_hz, 0., BQFParam::Q(0.707));
+        let r = Resampler {
+            from_frame: frame,
+            to_frame,
+            from_rate: from,
+            to_rate: to,
+            up,
+            down,
+            lpf,
+        };
+        log::debug!("io::Resampler {:?}", r);
+        (r, to_frame)
+    }
+    pub fn apply(&mut self, x: &[S]) -> Vec<S> {
+        if self.up == 1 && self.down == 1 {
+            return x.to_vec();
+        }
+        let mut upsampled: Vec<S>;
+        if self.up == 1 {
+            upsampled = x.to_vec();
+            upsampled = self.lpf.apply(&upsampled);
+        } else {
+            upsampled = vec![0.0 as S; x.len() * self.up];
+            for (i, v) in upsampled.iter_mut().enumerate() {
+                // TODO: do interpolation
+                *v = x[i / self.up];
+            }
+            upsampled = self.lpf.apply(&upsampled);
+        }
+        if self.down == 1 {
+            upsampled
+        } else {
+            upsampled
+                .into_iter()
+                .enumerate()
+                .filter(|&(i, _)| i % self.down == 0)
+                .map(|(_, v)| v)
+                .collect()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resampler_new() {
+        let t_from = 44100;
+        let t_to = 48000;
+        let t_frame = t_from / 30;
+        let t = DSP::with_resampling(t_frame, t_from, t_to, "[]");
+        let want = Info {
+            input_frame: 1470,
+            input_rate: 44100,
+            input_ch: 2,
+            output_frame: 1600,
+            output_rate: 48000,
+            output_ch: 2,
+        };
+        assert_eq!(t.info(), want);
+    }
 }

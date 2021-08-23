@@ -39,6 +39,8 @@ Toy audio processor I made in my holidays for fun :D **_(Work In Progress)_**
     - [x] Files (currently 2ch 16bit WAVE only)
     - [x] Pipe
     - [x] Spotify Connect (using librespot & pipe)
+    - [x] Resampling
+      - [ ] Cool interpolation instead of copy and paste
 - User Interfaces
     - [x] CLI
       - [x] with cool RMS meter🥰
