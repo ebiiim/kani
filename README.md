@@ -2,7 +2,7 @@
 
 <sup>"kani" means club in Japanese</sup>
 
-Toy audio processor I made in my holidays for fun :D **_(Work In Progress)_**
+Toy audio processor I made in my holidays for fun :D
 
 ![docs/demo.gif](https://raw.githubusercontent.com/ebiiim/kani/main/docs/demo.gif)
 
